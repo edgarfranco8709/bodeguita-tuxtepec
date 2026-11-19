@@ -25,13 +25,18 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  if (pathname === "/login") return null;
+  const esLogin = pathname === "/login";
 
   const [user, setUser] = useState<any>(null);
   const [checking, setChecking] = useState(true);
   const [abierto, setAbierto] = useState(false);
 
+  // Verificar sesión (no en /login)
   useEffect(() => {
+    if (esLogin) {
+      setChecking(false);
+      return;
+    }
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) window.location.href = "/login";
@@ -39,107 +44,106 @@ export function Sidebar() {
       setChecking(false);
     }
     checkAuth();
-  }, []);
+  }, [esLogin]);
+
+  const mostrar = !esLogin && !checking && !!user;
+
+  // Le avisa al CSS si hay sidebar o no (login = pantalla completa)
+  useEffect(() => {
+    document.body.classList.toggle("sin-sidebar", !mostrar);
+    return () => document.body.classList.remove("sin-sidebar");
+  }, [mostrar]);
+
+  // Cerrar el menú al cambiar de página
+  useEffect(() => {
+    setAbierto(false);
+  }, [pathname]);
 
   async function cerrarSesion() {
     await supabase.auth.signOut();
     window.location.href = "/login";
   }
 
-  if (checking || !user) return null;
+  if (!mostrar) return null;
 
   return (
     <>
       <button
-        onClick={() => setAbierto(true)}
         className="menu-btn"
-        style={{
-          position: "fixed", top: 16, left: 16, zIndex: 9999,
-          backgroundColor: "#0f172a", color: "white", padding: 8,
-          borderRadius: 8, border: "none", cursor: "pointer",
-        }}
+        onClick={() => setAbierto(true)}
+        aria-label="Abrir menú"
       >
-        <Menu className="h-6 w-6" />
+        <Menu size={24} />
       </button>
 
       {abierto && (
-        <div
-          onClick={() => setAbierto(false)}
-          className="overlay"
-          style={{
-            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.5)", zIndex: 9998,
-          }}
-        />
+        <div className="sidebar-overlay" onClick={() => setAbierto(false)} />
       )}
 
-      <div
-        className="sidebar"
-        style={{
-          position: "fixed", top: 0, left: 0, width: 256, height: "100vh",
-          backgroundColor: "#0f172a", color: "white", zIndex: 9999,
-          display: "flex", flexDirection: "column",
-          transform: abierto ? "translateX(0)" : "translateX(-100%)",
-          transition: "transform 0.2s",
-        }}
-      >
-        <div style={{ padding: 24, borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between" }}>
-          <div style={{ flex: 1, textAlign: "center" }}>
-            <img src="/logo.png" alt="Logo" style={{ height: 64, margin: "0 auto 8px" }} />
-            <h1 style={{ fontSize: 20, fontWeight: "bold" }}>La Bodeguita</h1>
-            <p style={{ fontSize: 12, color: "#94a3b8" }}>Tuxtepec</p>
+      <aside className={`sidebar ${abierto ? "open" : ""}`}>
+        <div style={{ padding: 20, borderBottom: "1px solid #334155", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ textAlign: "center", flex: 1 }}>
+            <img src="/logo.png" alt="Logo" style={{ height: 50, margin: "0 auto 6px" }} />
+            <div style={{ fontWeight: "bold", fontSize: 18 }}>La Bodeguita</div>
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>Tuxtepec</div>
           </div>
-          <button onClick={() => setAbierto(false)} className="close-btn" style={{ background: "none", border: "none", color: "white", cursor: "pointer" }}>
-            <X className="h-6 w-6" />
+          <button
+            className="sidebar-close"
+            onClick={() => setAbierto(false)}
+            aria-label="Cerrar menú"
+          >
+            <X size={24} />
           </button>
         </div>
 
-        <nav style={{ flex: 1, padding: 16, overflowY: "auto" }}>
+        <nav style={{ flex: 1, overflowY: "auto", padding: 12 }}>
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
             const Icon = item.icon;
+            const activo = pathname === item.href;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setAbierto(false)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "12px 16px", borderRadius: 8, marginBottom: 4,
-                  textDecoration: "none", color: isActive ? "white" : "#cbd5e1",
-                  backgroundColor: isActive ? "#334155" : "transparent",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  marginBottom: 4,
+                  textDecoration: "none",
+                  color: activo ? "#fff" : "#cbd5e1",
+                  background: activo ? "#334155" : "transparent",
                 }}
               >
-                <Icon className="h-5 w-5" />
-                <span>{item.label}</span>
+                <Icon size={20} />
+                {item.label}
               </Link>
             );
           })}
         </nav>
 
-        <div style={{ padding: 16, borderTop: "1px solid #334155" }}>
+        <div style={{ padding: 12, borderTop: "1px solid #334155" }}>
           <button
             onClick={cerrarSesion}
             style={{
-              width: "100%", display: "flex", alignItems: "center", gap: 12,
-              padding: "12px 16px", borderRadius: 8, background: "none",
-              border: "none", color: "#cbd5e1", cursor: "pointer",
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 14px",
+              borderRadius: 8,
+              background: "none",
+              border: "none",
+              color: "#cbd5e1",
+              cursor: "pointer",
             }}
           >
-            <LogOut className="h-5 w-5" />
-            <span>Cerrar sesión</span>
+            <LogOut size={20} />
+            Cerrar sesión
           </button>
         </div>
-      </div>
-
-      <style>{`
-        @media (min-width: 768px) {
-          .menu-btn { display: none !important; }
-          .overlay { display: none !important; }
-          .close-btn { display: none !important; }
-          .sidebar { transform: translateX(0) !important; }
-        }
-      `}</style>
+      </aside>
     </>
   );
 }
