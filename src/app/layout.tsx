@@ -18,14 +18,18 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={inter.className} style={{ margin: 0, padding: 0 }}>
-        <div style={{ display: "flex", minHeight: "100vh" }}>
-          <aside style={{ width: "250px", backgroundColor: "#0f172a", color: "white", flexShrink: 0 }}>
-            <Sidebar />
-          </aside>
-          <main style={{ flex: 1, padding: "24px", backgroundColor: "#f8fafc", overflow: "auto" }}>
-            {children}
-          </main>
-        </div>
+        <Sidebar />
+        <main style={{ marginLeft: 0, padding: 16, paddingTop: 60, backgroundColor: "#f8fafc", minHeight: "100vh" }} className="main-content">
+          {children}
+        </main>
+        <style>{`
+          @media (min-width: 768px) {
+            .main-content {
+              margin-left: 256px !important;
+              padding-top: 24px !important;
+            }
+          }
+        `}</style>
       </body>
     </html>
   );
