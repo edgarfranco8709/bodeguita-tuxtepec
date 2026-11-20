@@ -240,41 +240,40 @@ export default function GastosPage() {
   const categoriaSeleccionada = categorias.find((c) => c.id === filtroCategoria);
 
   return (
-    <div className="space-y-6 print:p-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={irAInicio} className="print:hidden"><HomeIcon className="h-5 w-5" /></Button>
+    <div className="space-y-4 print:p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={irAInicio} className="print:hidden shrink-0"><HomeIcon className="h-5 w-5" /></Button>
           <div>
-            <h1 className="text-3xl font-bold">Gastos</h1>
-            <p className="text-muted-foreground">Control de gastos del negocio</p>
+            <h1 className="text-2xl sm:text-3xl font-bold">Gastos</h1>
+            <p className="text-sm text-muted-foreground">Control de gastos</p>
           </div>
         </div>
-        <div className="flex gap-2 print:hidden">
+        <div className="flex flex-wrap gap-2 print:hidden">
           <Button variant="outline" size="icon" onClick={imprimir}><Printer className="h-4 w-4" /></Button>
-          <Button variant="outline" onClick={exportarExcel}>Exportar</Button>
-          <Button variant="outline" onClick={() => { setMostrarCategorias(!mostrarCategorias); setMostrarForm(false); }}><Settings className="h-4 w-4 mr-2" />Categorías</Button>
-          <Button onClick={() => { setMostrarForm(!mostrarForm); setMostrarCategorias(false); setEditando(null); }}>+ Nuevo gasto</Button>
+          <Button variant="outline" size="sm" onClick={exportarExcel}>Excel</Button>
+          <Button variant="outline" size="sm" onClick={() => { setMostrarCategorias(!mostrarCategorias); setMostrarForm(false); }}><Settings className="h-4 w-4 mr-1" />Cat.</Button>
+          <Button size="sm" onClick={() => { setMostrarForm(!mostrarForm); setMostrarCategorias(false); setEditando(null); }}>+ Nuevo</Button>
         </div>
       </div>
 
       <div className="flex flex-wrap gap-2 items-end print:hidden">
         {(["hoy", "semana", "mes", "rango"] as Filtro[]).map((f) => (
-          <button key={f} onClick={() => setFiltro(f)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === f ? "bg-red-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
-            {f === "hoy" ? "Hoy" : f === "semana" ? "Esta semana" : f === "mes" ? "Este mes" : "Rango"}
+          <button key={f} onClick={() => setFiltro(f)} className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${filtro === f ? "bg-red-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+            {f === "hoy" ? "Hoy" : f === "semana" ? "Semana" : f === "mes" ? "Mes" : "Rango"}
           </button>
         ))}
         {filtro === "rango" && (
           <>
-            <div className="space-y-1"><Label className="text-xs">Desde</Label><Input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} /></div>
-            <div className="space-y-1"><Label className="text-xs">Hasta</Label><Input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} /></div>
+            <div className="space-y-1"><Label className="text-xs">Desde</Label><Input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="h-9" /></div>
+            <div className="space-y-1"><Label className="text-xs">Hasta</Label><Input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="h-9" /></div>
           </>
         )}
       </div>
 
       <div className="flex flex-wrap gap-2 items-center print:hidden">
-        <Label className="text-sm">Filtrar por categoría:</Label>
         <select
-          className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[200px]"
+          className="flex h-9 rounded-md border border-input bg-background px-3 py-2 text-sm w-full sm:w-auto sm:min-w-[200px]"
           value={filtroCategoria}
           onChange={(e) => setFiltroCategoria(e.target.value)}
         >
@@ -300,22 +299,22 @@ export default function GastosPage() {
               {categorias.map((cat) => {
                 const Icono = getIcono(cat.name);
                 return (
-                  <div key={cat.id} className="flex items-center justify-between border-b py-3">
+                  <div key={cat.id} className="flex items-center justify-between border-b py-2">
                     {editandoCategoria?.id === cat.id ? (
                       <div className="flex gap-2 flex-1">
                         <Input value={nombreCategoriaEdit} onChange={(e) => setNombreCategoriaEdit(e.target.value)} className="h-8" />
-                        <Button size="sm" onClick={guardarEdicionCategoria}>Guardar</Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditandoCategoria(null)}>Cancelar</Button>
+                        <Button size="sm" onClick={guardarEdicionCategoria}>OK</Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditandoCategoria(null)}>X</Button>
                       </div>
                     ) : (
                       <>
-                        <span className="flex items-center gap-3">
-                          <div className="p-2 bg-slate-100 rounded-lg"><Icono className="h-5 w-5 text-slate-600" /></div>
-                          <span className="font-medium">{cat.name}</span>
+                        <span className="flex items-center gap-2 text-sm">
+                          <Icono className="h-4 w-4 text-slate-500" />
+                          {cat.name}
                         </span>
                         <div className="flex gap-1">
-                          <Button size="icon" variant="ghost" onClick={() => iniciarEdicionCategoria(cat)}><Pencil className="h-4 w-4" /></Button>
-                          <Button size="icon" variant="ghost" onClick={() => eliminarCategoria(cat.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => iniciarEdicionCategoria(cat)}><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => eliminarCategoria(cat.id)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
                         </div>
                       </>
                     )}
@@ -330,62 +329,62 @@ export default function GastosPage() {
       {mostrarForm && (
         <Card className="print:hidden">
           <CardHeader><CardTitle>{editando ? "Editar gasto" : "Nuevo gasto"}</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Categoría</Label>
-                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)}>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Categoría</Label>
+                <select className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)}>
                   <option value="">Sin categoría</option>
                   {categorias.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-              <div className="space-y-2"><Label>Monto</Label><Input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0.00" /></div>
+              <div className="space-y-1"><Label className="text-xs">Monto</Label><Input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0.00" className="h-9" /></div>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2"><Label>Descripción</Label><Input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Descripción" /></div>
-              <div className="space-y-2"><Label>Fecha</Label><Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+              <div className="space-y-1"><Label className="text-xs">Descripción</Label><Input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Descripción" className="h-9" /></div>
+              <div className="space-y-1"><Label className="text-xs">Fecha</Label><Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="h-9" /></div>
             </div>
-            <div className="space-y-2">
-              <Label>Forma de pago</Label>
-              <select className="flex h-10 w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm" value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
+            <div className="space-y-1">
+              <Label className="text-xs">Forma de pago</Label>
+              <select className="flex h-9 w-full sm:max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm" value={formaPago} onChange={(e) => setFormaPago(e.target.value)}>
                 <option value="Efectivo">Efectivo</option>
                 <option value="Transferencia">Transferencia</option>
                 <option value="Mixta">Mixta</option>
               </select>
             </div>
             {formaPago === "Mixta" && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2"><Label>Efectivo</Label><Input type="number" value={montoEfectivo} onChange={(e) => setMontoEfectivo(e.target.value)} /></div>
-                <div className="space-y-2"><Label>Transferencia</Label><Input type="number" value={montoBanco} onChange={(e) => setMontoBanco(e.target.value)} /></div>
+              <div className="grid gap-3 grid-cols-2">
+                <div className="space-y-1"><Label className="text-xs">Efectivo</Label><Input type="number" value={montoEfectivo} onChange={(e) => setMontoEfectivo(e.target.value)} className="h-9" /></div>
+                <div className="space-y-1"><Label className="text-xs">Transferencia</Label><Input type="number" value={montoBanco} onChange={(e) => setMontoBanco(e.target.value)} className="h-9" /></div>
               </div>
             )}
             <div className="flex gap-2">
-              <Button onClick={registrarGasto}>{editando ? "Actualizar" : "Registrar"}</Button>
-              <Button variant="outline" onClick={limpiarFormulario}>Cancelar</Button>
+              <Button size="sm" onClick={registrarGasto}>{editando ? "Actualizar" : "Registrar"}</Button>
+              <Button size="sm" variant="outline" onClick={limpiarFormulario}>Cancelar</Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{filtroCategoria ? `Total ${categoriaSeleccionada?.name || ""}` : "Total gastos"}</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">${Math.round(totalGastos).toLocaleString()}</div></CardContent>
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium">{filtroCategoria ? `Total ${categoriaSeleccionada?.name || ""}` : "Total gastos"}</CardTitle></CardHeader>
+          <CardContent><div className="text-xl font-bold">${Math.round(totalGastos).toLocaleString()}</div></CardContent>
         </Card>
-        <Card className="md:col-span-2">
-          <CardHeader className="pb-1"><CardTitle className="text-sm font-medium">Top 10 categorías</CardTitle></CardHeader>
+        <Card className="sm:col-span-2">
+          <CardHeader className="pb-1"><CardTitle className="text-xs font-medium">Top 10 categorías</CardTitle></CardHeader>
           <CardContent className="pt-0">
             {top10.length === 0 ? <p className="text-sm text-muted-foreground">Sin datos</p> : (
               <div className="space-y-0.5">
                 {top10.map((cat, i) => {
                   const Icono = getIcono(cat.name);
                   return (
-                    <div key={i} className="flex justify-between items-center text-sm py-1">
-                      <span className="flex items-center gap-2">
-                        <Icono className="h-4 w-4 text-slate-500" />
-                        <span>{i + 1}. {cat.name}</span>
+                    <div key={i} className="flex justify-between items-center text-sm py-0.5">
+                      <span className="flex items-center gap-1.5 truncate">
+                        <Icono className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                        <span className="truncate">{i + 1}. {cat.name}</span>
                       </span>
-                      <span className="font-medium">${Math.round(cat.value).toLocaleString()}</span>
+                      <span className="font-medium shrink-0 ml-2">${Math.round(cat.value).toLocaleString()}</span>
                     </div>
                   );
                 })}
@@ -397,16 +396,16 @@ export default function GastosPage() {
 
       {datosGrafica.length > 0 && !filtroCategoria && (
         <Card>
-          <CardHeader><CardTitle>Distribución por categoría</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Distribución por categoría</CardTitle></CardHeader>
           <CardContent>
-            <div className="h-64">
+            <div className="h-72 sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={datosGrafica} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} innerRadius={40} label={({ percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                  <Pie data={datosGrafica} dataKey="value" nameKey="name" cx="50%" cy="40%" outerRadius={70} innerRadius={35} label={({ percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
                     {datosGrafica.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Pie>
                   <Tooltip formatter={(v: number) => `$${Math.round(Number(v)).toLocaleString()}`} />
-                  <Legend layout="vertical" align="right" verticalAlign="middle" />
+                  <Legend layout="horizontal" align="center" verticalAlign="bottom" wrapperStyle={{ fontSize: "11px", paddingTop: "10px" }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -415,25 +414,52 @@ export default function GastosPage() {
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle>
-            Historial de gastos
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">
+            Historial
             {filtroCategoria && categoriaSeleccionada && (
-              <span className="ml-2 text-base font-normal text-muted-foreground">- {categoriaSeleccionada.name}</span>
+              <span className="ml-1 font-normal text-muted-foreground">- {categoriaSeleccionada.name}</span>
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 sm:px-6">
           {loading ? <p>Cargando...</p> : gastos.length === 0 ? <p className="text-muted-foreground">Sin gastos</p> : (
-            <table className="w-full text-sm">
+            <div className="space-y-2 sm:hidden">
+              {gastos.map((gasto) => {
+                const Icono = getIcono(gasto.categoria_nombre || "");
+                return (
+                  <div key={gasto.id} className="border rounded-lg p-3 bg-white">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-2">
+                        <Icono className="h-4 w-4 text-slate-500" />
+                        <span className="font-medium text-sm">{gasto.categoria_nombre || "-"}</span>
+                      </div>
+                      <span className="font-bold text-green-700">${Math.round(Number(gasto.amount)).toLocaleString()}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">{gasto.expense_date}</div>
+                    <div className="text-sm mt-1">{gasto.description || "-"}</div>
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">{gasto.payment_method || "Efectivo"}</span>
+                      <div className="flex gap-1 print:hidden">
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => iniciarEdicion(gasto)}><Pencil className="h-3.5 w-3.5" /></Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => eliminarGasto(gasto.id)}><Trash2 className="h-3.5 w-3.5 text-red-500" /></Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {!loading && gastos.length > 0 && (
+            <table className="w-full text-sm hidden sm:table">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-3">Fecha</th>
-                  <th className="text-left py-3">Categoría</th>
-                  <th className="text-left py-3">Descripción</th>
-                  <th className="text-right py-3 pr-8">Monto</th>
-                  <th className="text-left py-3 pl-8">Pago</th>
-                  <th className="text-right py-3 print:hidden">Acciones</th>
+                  <th className="text-left py-2">Fecha</th>
+                  <th className="text-left py-2">Categoría</th>
+                  <th className="text-left py-2">Descripción</th>
+                  <th className="text-right py-2">Monto</th>
+                  <th className="text-left py-2">Pago</th>
+                  <th className="text-right py-2 print:hidden">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -441,17 +467,17 @@ export default function GastosPage() {
                   const Icono = getIcono(gasto.categoria_nombre || "");
                   return (
                     <tr key={gasto.id} className="border-b">
-                      <td className="py-3">{gasto.expense_date}</td>
-                      <td className="py-3">
+                      <td className="py-2">{gasto.expense_date}</td>
+                      <td className="py-2">
                         <span className="flex items-center gap-2">
                           <Icono className="h-4 w-4 text-slate-500" />
                           {gasto.categoria_nombre || "-"}
                         </span>
                       </td>
-                      <td className="py-3">{gasto.description || "-"}</td>
-                      <td className="py-3 text-right font-medium pr-8">${Math.round(Number(gasto.amount)).toLocaleString()}</td>
-                      <td className="py-3 pl-8">{gasto.payment_method || "Efectivo"}</td>
-                      <td className="py-3 text-right print:hidden">
+                      <td className="py-2">{gasto.description || "-"}</td>
+                      <td className="py-2 text-right font-medium">${Math.round(Number(gasto.amount)).toLocaleString()}</td>
+                      <td className="py-2">{gasto.payment_method || "Efectivo"}</td>
+                      <td className="py-2 text-right print:hidden">
                         <div className="flex justify-end gap-1">
                           <Button size="icon" variant="ghost" onClick={() => iniciarEdicion(gasto)}><Pencil className="h-4 w-4" /></Button>
                           <Button size="icon" variant="ghost" onClick={() => eliminarGasto(gasto.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button>

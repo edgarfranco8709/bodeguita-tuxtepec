@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Wallet, Building2, Plus, Minus, ArrowRightLeft } from "lucide-react";
+import { Wallet, Building2, Plus, Minus, ArrowRightLeft, Printer, Download, Trash2 } from "lucide-react";
+import * as XLSX from "xlsx";
 
 type Movimiento = {
   id: string;
@@ -66,6 +67,10 @@ export default function CajaPage() {
       return { inicio: inicio.toISOString().split("T")[0], fin: fin.toISOString().split("T")[0] };
     }
     return { inicio: fechaInicio, fin: fechaFin };
+  }
+
+  function esMovimientoManual(id: string) {
+    return !id.startsWith("venta-") && !id.startsWith("compra-") && !id.startsWith("gasto-");
   }
 
   async function cargar() {
@@ -181,6 +186,18 @@ export default function CajaPage() {
     cargar();
   }
 
+  async function eliminarMovimiento(id: string) {
+    if (!esMovimientoManual(id)) {
+      alert("Este movimiento viene de ventas/compras/gastos. Edítalo desde su módulo.");
+      return;
+    }
+    if (!confirm("¿Eliminar este movimiento?")) return;
+
+    const { error } = await supabase.from("cash_movements").delete().eq("id", id);
+    if (error) alert("Error: " + error.message);
+    else cargar();
+  }
+
   async function guardarSaldos() {
     const { error } = await supabase.from("cash_balance").update({
       cash_balance: Number(saldoEfectivoEdit) || 0,
@@ -223,6 +240,43 @@ export default function CajaPage() {
     cargar();
   }
 
+  function imprimir() {
+    window.print();
+  }
+
+  function exportarExcel() {
+    const rango = obtenerRango(filtro);
+    const data = movimientos.map((m) => ({
+      Fecha: m.movement_date?.split("T")[0] || "",
+      Tipo: m.type,
+      Fuente: m.source,
+      Descripción: m.description || "-",
+      Monto: Math.round(Number(m.amount)),
+    }));
+
+    data.push({
+      Fecha: "",
+      Tipo: "",
+      Fuente: "",
+      Descripción: "TOTAL ENTRADAS",
+      Monto: Math.round(totalEntradas),
+    });
+    data.push({
+      Fecha: "",
+      Tipo: "",
+      Fuente: "",
+      Descripción: "TOTAL SALIDAS",
+      Monto: Math.round(totalSalidas),
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Movimientos");
+
+    const nombreArchivo = `Caja_${rango.inicio || "todos"}_${rango.fin || ""}.xlsx`;
+    XLSX.writeFile(wb, nombreArchivo);
+  }
+
   const totalEntradas = movimientos.filter((m) => m.type === "entrada").reduce((s, m) => s + Number(m.amount), 0);
   const totalSalidas = movimientos.filter((m) => m.type === "salida").reduce((s, m) => s + Number(m.amount), 0);
 
@@ -230,12 +284,22 @@ export default function CajaPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-3xl font-bold">Caja</h1>
           <p className="text-muted-foreground">Control de efectivo y banco</p>
         </div>
-        <Button onClick={() => setMostrarForm(!mostrarForm)}>+ Movimiento</Button>
+        <div className="flex gap-2 print:hidden">
+          <Button variant="outline" onClick={imprimir}>
+            <Printer className="h-4 w-4 mr-2" />
+            Imprimir
+          </Button>
+          <Button variant="outline" onClick={exportarExcel}>
+            <Download className="h-4 w-4 mr-2" />
+            Excel
+          </Button>
+          <Button onClick={() => setMostrarForm(!mostrarForm)}>+ Movimiento</Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -273,7 +337,7 @@ export default function CajaPage() {
         </Card>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 print:hidden">
         {editandoSaldo ? (
           <>
             <Button onClick={guardarSaldos}>Guardar saldos</Button>
@@ -285,7 +349,7 @@ export default function CajaPage() {
       </div>
 
       {mostrarForm && (
-        <Card>
+        <Card className="print:hidden">
           <CardHeader><CardTitle>Nuevo movimiento</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-4">
@@ -352,7 +416,7 @@ export default function CajaPage() {
         </Card>
       )}
 
-      <div className="flex flex-wrap gap-2 items-end">
+      <div className="flex flex-wrap gap-2 items-end print:hidden">
         <Button variant={filtro === "hoy" ? "default" : "outline"} onClick={() => setFiltro("hoy")}>Hoy</Button>
         <Button variant={filtro === "semana" ? "default" : "outline"} onClick={() => setFiltro("semana")}>Esta semana</Button>
         <Button variant={filtro === "mes" ? "default" : "outline"} onClick={() => setFiltro("mes")}>Este mes</Button>
@@ -365,7 +429,7 @@ export default function CajaPage() {
         )}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 print:hidden">
         <button
           onClick={() => setFiltroFuente("todos")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filtroFuente === "todos" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"}`}
@@ -409,6 +473,7 @@ export default function CajaPage() {
                   <th className="text-left py-3">Fuente</th>
                   <th className="text-left py-3">Descripción</th>
                   <th className="text-right py-3">Monto</th>
+                  <th className="text-right py-3 print:hidden">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -424,6 +489,13 @@ export default function CajaPage() {
                     <td className="py-3">{mov.description || "-"}</td>
                     <td className={`py-3 text-right font-medium ${mov.type === "entrada" ? "text-green-600" : mov.type === "salida" ? "text-red-600" : ""}`}>
                       ${Math.round(Number(mov.amount)).toLocaleString()}
+                    </td>
+                    <td className="py-3 text-right print:hidden">
+                      {esMovimientoManual(mov.id) && (
+                        <Button size="icon" variant="ghost" onClick={() => eliminarMovimiento(mov.id)} title="Eliminar">
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
