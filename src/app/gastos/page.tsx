@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Pencil, Trash2, Home as HomeIcon, Printer, Settings, Fuel, Truck, Zap, Users, Package, MoreHorizontal, Wrench } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -72,7 +72,7 @@ export default function GastosPage() {
   const [filtroCategoria, setFiltroCategoria] = useState("");
 
   useEffect(() => {
-    const hoy = new Date().toISOString().split("T")[0];
+    const hoy = new Date().toLocaleDateString("en-CA");
     setFecha(hoy);
   }, []);
 
@@ -234,8 +234,15 @@ export default function GastosPage() {
     acc[nombre] = (acc[nombre] || 0) + Number(g.amount);
     return acc;
   }, {} as Record<string, number>);
-  const datosGrafica = Object.entries(gastosPorCategoria).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  const top10 = datosGrafica.slice(0, 10);
+  
+  const todasCategorias = Object.entries(gastosPorCategoria)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
+  
+  const top6 = todasCategorias.slice(0, 6);
+  const otrosValor = todasCategorias.slice(6).reduce((sum, c) => sum + c.value, 0);
+  const datosGrafica = otrosValor > 0 ? [...top6, { name: "Otros", value: otrosValor }] : top6;
+  const top10 = todasCategorias.slice(0, 10);
 
   const categoriaSeleccionada = categorias.find((c) => c.id === filtroCategoria);
 
@@ -369,7 +376,7 @@ export default function GastosPage() {
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-1"><CardTitle className="text-xs font-medium">{filtroCategoria ? `Total ${categoriaSeleccionada?.name || ""}` : "Total gastos"}</CardTitle></CardHeader>
-          <CardContent><div className="text-xl font-bold">${Math.round(totalGastos).toLocaleString()}</div></CardContent>
+          <CardContent><div className="text-xl font-bold text-red-600">${Math.round(totalGastos).toLocaleString()}</div></CardContent>
         </Card>
         <Card className="sm:col-span-2">
           <CardHeader className="pb-1"><CardTitle className="text-xs font-medium">Top 10 categorías</CardTitle></CardHeader>
@@ -398,16 +405,32 @@ export default function GastosPage() {
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">Distribución por categoría</CardTitle></CardHeader>
           <CardContent>
-            <div className="h-72 sm:h-64">
+            <div className="relative h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={datosGrafica} dataKey="value" nameKey="name" cx="50%" cy="40%" outerRadius={70} innerRadius={35} label={({ percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                  <Pie data={datosGrafica} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} innerRadius={45}>
                     {datosGrafica.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Pie>
                   <Tooltip formatter={(v: number) => `$${Math.round(Number(v)).toLocaleString()}`} />
-                  <Legend layout="horizontal" align="center" verticalAlign="bottom" wrapperStyle={{ fontSize: "11px", paddingTop: "10px" }} />
                 </PieChart>
               </ResponsiveContainer>
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  <div className="text-xs text-muted-foreground">Total</div>
+                  <div className="text-lg font-bold">${Math.round(totalGastos).toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 space-y-1">
+              {datosGrafica.map((cat, i) => (
+                <div key={i} className="flex justify-between items-center text-sm">
+                  <span className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                    <span className="truncate">{cat.name}</span>
+                  </span>
+                  <span className="font-medium shrink-0 ml-2">${Math.round(cat.value).toLocaleString()}</span>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -434,7 +457,7 @@ export default function GastosPage() {
                         <Icono className="h-4 w-4 text-slate-500" />
                         <span className="font-medium text-sm">{gasto.categoria_nombre || "-"}</span>
                       </div>
-                      <span className="font-bold text-green-700">${Math.round(Number(gasto.amount)).toLocaleString()}</span>
+                      <span className="font-bold text-red-600">${Math.round(Number(gasto.amount)).toLocaleString()}</span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">{gasto.expense_date}</div>
                     <div className="text-sm mt-1">{gasto.description || "-"}</div>
@@ -475,7 +498,7 @@ export default function GastosPage() {
                         </span>
                       </td>
                       <td className="py-2">{gasto.description || "-"}</td>
-                      <td className="py-2 text-right font-medium">${Math.round(Number(gasto.amount)).toLocaleString()}</td>
+                      <td className="py-2 text-right font-medium text-red-600">${Math.round(Number(gasto.amount)).toLocaleString()}</td>
                       <td className="py-2">{gasto.payment_method || "Efectivo"}</td>
                       <td className="py-2 text-right print:hidden">
                         <div className="flex justify-end gap-1">
