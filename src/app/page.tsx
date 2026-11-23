@@ -65,7 +65,6 @@ export default function DashboardPage() {
       const finMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).toISOString().split("T")[0];
       const mes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
 
-      // Consultas en paralelo (más rápido)
       const [
         { data: ventas },
         { data: items },
@@ -75,50 +74,63 @@ export default function DashboardPage() {
         { data: comprasGM },
         { data: bonif },
         { data: inicial },
+        { data: ventasItems },
       ] = await Promise.all([
-        supabase.from("sales").select("id, total_amount, total_cost, customer_id, sale_date, customers(name)").gte("sale_date", rango.inicio).lte("sale_date", rango.fin),
-        supabase.from("sale_items").select("sale_id, quantity, unit_price, lot_id"),
+        supabase.from("sales").select("id, total_amount, customer_id, sale_date, customers(name)").gte("sale_date", rango.inicio).lte("sale_date", rango.fin),
+        supabase.from("sale_items").select("sale_id, quantity, unit_price, unit_cost, lot_id"),
         supabase.from("expenses").select("amount").gte("expense_date", rango.inicio).lte("expense_date", rango.fin),
-        supabase.from("purchase_lots").select("product_id, quantity_remaining, unit_cost, supplier"),
+        supabase.from("purchase_lots").select("id, product_id, quantity_initial, quantity_remaining, quantity_merma, unit_cost, supplier, purchase_date"),
         supabase.from("products").select("id, name"),
         supabase.from("purchase_lots").select("quantity_initial").gte("purchase_date", inicioMes).lte("purchase_date", finMes).eq("supplier", "Grupo Modelo Tuxtepec"),
-        supabase.from("purchase_lots").select("quantity_initial, product_id, unit_cost").gte("purchase_date", inicioMes).lte("purchase_date", finMes).eq("supplier", "Grupo Modelo Tuxtepec-Bonificación"),
-        supabase.from("initial_inventory").select("quantity, unit_cost").eq("month", mes),
+        supabase.from("purchase_lots").select("id, quantity_initial, product_id, unit_cost").gte("purchase_date", inicioMes).lte("purchase_date", finMes).eq("supplier", "Grupo Modelo Tuxtepec-Bonificación"),
+        supabase.from("initial_inventory").select("product_id, quantity, unit_cost").eq("month", mes),
+        supabase.from("sale_items").select("product_id, quantity"),
       ]);
 
-      // Stock y valor
-      let stockLotes = 0;
-      let valorLotes = 0;
-      if (lotes) {
-        stockLotes = lotes.reduce((sum, l) => sum + Number(l.quantity_remaining), 0);
-        valorLotes = lotes.reduce((sum, l) => sum + Number(l.quantity_remaining) * Number(l.unit_cost), 0);
-      }
-
-      // Stock bajo
+      // Calcular stock con fórmula
+      let stockTotalCalc = 0;
+      let valorTotalCalc = 0;
       const bajos: { name: string; stock: number }[] = [];
-      if (prods && lotes) {
+
+      if (prods) {
         for (const prod of prods) {
-          const stockProd = lotes.filter((l) => l.product_id === prod.id).reduce((sum, l) => sum + Number(l.quantity_remaining), 0);
-          if (stockProd > 0 && stockProd < 50) bajos.push({ name: prod.name, stock: stockProd });
+          const lotesProd = lotes?.filter((l) => l.product_id === prod.id) || [];
+          const mermaProd = lotesProd.reduce((sum, l) => sum + Number(l.quantity_merma || 0), 0);
+          const valorProd = lotesProd.reduce((sum, l) => sum + Number(l.quantity_remaining) * Number(l.unit_cost), 0);
+
+          const invInicial = inicial?.find((i) => i.product_id === prod.id);
+          const stockInicial = Number(invInicial?.quantity || 0);
+
+          const lotesMesProd = lotes?.filter((l) => l.product_id === prod.id && l.purchase_date >= inicioMes) || [];
+          const totalLotesMes = lotesMesProd.reduce((sum, l) => sum + Number(l.quantity_initial), 0);
+          const totalCompras = Math.max(0, totalLotesMes - stockInicial);
+
+          const ventasProd = ventasItems?.filter((v) => v.product_id === prod.id) || [];
+          const totalVentas = ventasProd.reduce((sum, v) => sum + Number(v.quantity), 0);
+
+          const stockFormula = Math.max(0, stockInicial + totalCompras - totalVentas - mermaProd);
+          stockTotalCalc += stockFormula;
+          valorTotalCalc += valorProd;
+
+          if (stockFormula > 0 && stockFormula < 50) {
+            bajos.push({ name: prod.name, stock: stockFormula });
+          }
         }
       }
+
+      setStockTotal(stockTotalCalc);
+      setValorInventario(valorTotalCalc);
       setProductosBajos(bajos);
 
-      // Inventario inicial
-      let stockInicial = 0;
-      let valorInicial = 0;
+      let stockInicialTotal = 0;
       if (inicial) {
-        stockInicial = inicial.reduce((sum, i) => sum + Number(i.quantity), 0);
-        valorInicial = inicial.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_cost || 0), 0);
+        stockInicialTotal = inicial.reduce((sum, i) => sum + Number(i.quantity), 0);
       }
-      setInventarioInicial(stockInicial);
-      setStockTotal(stockLotes + stockInicial);
-      setValorInventario(valorLotes + valorInicial);
+      setInventarioInicial(stockInicialTotal);
 
-      // Grupo Modelo
       setCartonesGrupoModelo(comprasGM ? comprasGM.reduce((sum, c) => sum + Number(c.quantity_initial), 0) : 0);
 
-      // Bonificación
+      const idsLotesBonif = new Set(bonif?.map((b) => b.id) || []);
       if (bonif && bonif.length > 0) {
         const totalCartones = bonif.reduce((sum, b) => sum + Number(b.quantity_initial), 0);
         setBonificacion(totalCartones);
@@ -129,56 +141,57 @@ export default function DashboardPage() {
         setBonificacionValor(0);
       }
 
-      // Ventas
-      if (ventas) {
+      // Ventas - calcular desde sale_items
+      if (ventas && items) {
+        const ventasIds = new Set(ventas.map((v) => v.id));
+        const itemsFiltrados = items.filter((i) => ventasIds.has(i.sale_id));
+
+        const ventasMes = itemsFiltrados.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_price), 0);
+        const costoMes = itemsFiltrados.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_cost || 0), 0);
+
         setNumeroVentas(ventas.length);
-        const ventasMes = ventas.reduce((sum, v) => sum + Number(v.total_amount), 0);
-        const costoMes = ventas.reduce((sum, v) => sum + Number(v.total_cost), 0);
         setTotalVentas(ventasMes);
         setTotalDiferencia(ventasMes - costoMes);
         setNumeroClientes(new Set(ventas.map((v) => v.customer_id)).size);
+        setCartonesVendidos(itemsFiltrados.reduce((sum, i) => sum + Number(i.quantity), 0));
 
+        // Utilidad de bonificación (solo de lotes de bonificación)
+        let utilidadBonif = 0;
+        for (const item of itemsFiltrados) {
+          if (item.lot_id && idsLotesBonif.has(item.lot_id)) {
+            utilidadBonif += Number(item.quantity) * Number(item.unit_price);
+          }
+        }
+        setUtilidadBonificacion(utilidadBonif);
+
+        // Ventas por día
         const porDia: Record<string, number> = {};
         ventas.forEach((v) => {
           const fecha = v.sale_date.split("T")[0];
-          porDia[fecha] = (porDia[fecha] || 0) + Number(v.total_amount);
+          const itemsVenta = itemsFiltrados.filter((i) => i.sale_id === v.id);
+          const totalVenta = itemsVenta.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_price), 0);
+          porDia[fecha] = (porDia[fecha] || 0) + totalVenta;
         });
         setVentasPorDia(Object.entries(porDia).map(([fecha, total]) => ({ fecha, total })).sort((a, b) => a.fecha.localeCompare(b.fecha)));
+
+        // Top clientes
+        const clientesMap: Record<string, { nombre: string; cartones: number; monto: number }> = {};
+        ventas.forEach((v) => {
+          const nombre = (v.customers as any)?.name || "Sin nombre";
+          const itemsVenta = itemsFiltrados.filter((i) => i.sale_id === v.id);
+          const cartonesCliente = itemsVenta.reduce((sum, i) => sum + Number(i.quantity), 0);
+          const montoCliente = itemsVenta.reduce((sum, i) => sum + Number(i.quantity) * Number(i.unit_price), 0);
+          if (!clientesMap[v.customer_id]) clientesMap[v.customer_id] = { nombre, cartones: 0, monto: 0 };
+          clientesMap[v.customer_id].cartones += cartonesCliente;
+          clientesMap[v.customer_id].monto += montoCliente;
+        });
+        setTopClientes(Object.values(clientesMap).sort((a, b) => b.cartones - a.cartones).slice(0, 10));
       } else {
         setTotalVentas(0);
         setTotalDiferencia(0);
         setNumeroVentas(0);
         setNumeroClientes(0);
         setVentasPorDia([]);
-      }
-
-      // Cartones y top clientes
-      if (items && ventas) {
-        const ventasIds = new Set(ventas.map((v) => v.id));
-        const itemsFiltrados = items.filter((i) => ventasIds.has(i.sale_id));
-        setCartonesVendidos(itemsFiltrados.reduce((sum, i) => sum + Number(i.quantity), 0));
-
-        // Utilidad bonificación (simplificada)
-        const lotesBonif = new Set(lotes?.filter(l => l.supplier === "Grupo Modelo Tuxtepec-Bonificación").map(l => l.product_id) || []);
-        let utilidadBonif = 0;
-        for (const item of itemsFiltrados) {
-          if (item.lot_id && lotesBonif.size > 0) {
-            utilidadBonif += Number(item.quantity) * Number(item.unit_price);
-          }
-        }
-        setUtilidadBonificacion(utilidadBonif);
-
-        // Top clientes
-        const clientesMap: Record<string, { nombre: string; cartones: number; monto: number }> = {};
-        ventas.forEach((v) => {
-          const nombre = (v.customers as any)?.name || "Sin nombre";
-          const cartonesCliente = itemsFiltrados.filter((i) => i.sale_id === v.id).reduce((sum, i) => sum + Number(i.quantity), 0);
-          if (!clientesMap[v.customer_id]) clientesMap[v.customer_id] = { nombre, cartones: 0, monto: 0 };
-          clientesMap[v.customer_id].cartones += cartonesCliente;
-          clientesMap[v.customer_id].monto += Number(v.total_amount);
-        });
-        setTopClientes(Object.values(clientesMap).sort((a, b) => b.cartones - a.cartones).slice(0, 10));
-      } else {
         setCartonesVendidos(0);
         setUtilidadBonificacion(0);
         setTopClientes([]);

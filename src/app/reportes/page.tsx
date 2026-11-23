@@ -6,14 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Printer } from "lucide-react";
+import { Printer, FileSpreadsheet } from "lucide-react";
+import * as XLSX from "xlsx";
 
 type Lote = {
   id: string;
   product_id: string;
   quantity_initial: number;
   quantity_remaining: number;
-  quantity_merma: number | null;
   unit_cost: number;
   purchase_date: string;
   supplier: string | null;
@@ -28,48 +28,47 @@ type VentaLote = {
 };
 
 type Producto = { id: string; name: string };
+type Cliente = { id: string; name: string };
 type Filtro = "hoy" | "semana" | "mes" | "rango";
+
+type VentaDetalle = {
+  id: string;
+  fecha: string;
+  cliente: string;
+  clienteId: string;
+  producto: string;
+  cantidad: number;
+  costoUnitario: number;
+  precioUnitario: number;
+  importe: number;
+  totalCosto: number;
+  diferencia: number;
+  utilidad: number;
+};
 
 export default function ReportesPage() {
   const [lotes, setLotes] = useState<Lote[]>([]);
   const [ventasLotes, setVentasLotes] = useState<VentaLote[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
   const [loteSeleccionado, setLoteSeleccionado] = useState("");
   const [productoId, setProductoId] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("mes");
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
+  const [filtroCliente, setFiltroCliente] = useState("");
   const [historialVentas, setHistorialVentas] = useState<any[]>([]);
+  const [ventasDetalle, setVentasDetalle] = useState<VentaDetalle[]>([]);
+  const [mostrarDetalle, setMostrarDetalle] = useState(false);
 
   useEffect(() => {
     cargar();
   }, []);
 
   useEffect(() => {
-    if (productoId) cargarHistorialProducto();
-  }, [productoId, filtro, fechaInicio, fechaFin]);
-
-  async function cargar() {
-    setLoading(true);
-
-    const { data: lotesData } = await supabase
-      .from("purchase_lots")
-      .select("*, products(name)")
-      .order("purchase_date", { ascending: false });
-
-    const { data: ventasData } = await supabase
-      .from("sale_items")
-      .select("lot_id, quantity, unit_price, unit_cost")
-      .not("lot_id", "is", null);
-
-    const { data: prods } = await supabase.from("products").select("id, name").order("name");
-
-    setLotes(lotesData || []);
-    setVentasLotes(ventasData || []);
-    setProductos(prods || []);
-    setLoading(false);
-  }
+    if (mostrarDetalle) cargarVentasDetalle();
+  }, [filtro, fechaInicio, fechaFin, filtroCliente, mostrarDetalle]);
 
   function obtenerRango(filtro: Filtro) {
     const hoy = new Date();
@@ -90,285 +89,462 @@ export default function ReportesPage() {
     return { inicio: fechaInicio, fin: fechaFin };
   }
 
-  async function cargarHistorialProducto() {
-    if (!productoId) return;
-    const rango = obtenerRango(filtro);
+  async function cargar() {
+    setLoading(true);
 
-    const { data: items } = await supabase
+    const { data: lotesData } = await supabase
+      .from("purchase_lots")
+      .select("*, products(name)")
+      .order("purchase_date", { ascending: false });
+
+    const { data: ventasData } = await supabase
       .from("sale_items")
-      .select("quantity, unit_price, sale_id, sales(sale_date, customers(name))")
-      .eq("product_id", productoId);
+      .select("lot_id, quantity, unit_price, unit_cost")
+      .not("lot_id", "is", null);
 
-    if (items) {
-      const historial = items
-        .filter((item) => {
-          const sale = item.sales as any;
-          if (!sale?.sale_date) return false;
-          const fecha = sale.sale_date.split("T")[0];
-          if (rango.inicio && fecha < rango.inicio) return false;
-          if (rango.fin && fecha > rango.fin) return false;
-          return true;
-        })
-        .map((item) => {
-          const sale = item.sales as any;
-          return {
-            fecha: sale?.sale_date?.split("T")[0] || "-",
-            cliente: sale?.customers?.name || "-",
-            cantidad: Number(item.quantity),
-            precio: Number(item.unit_price),
-            total: Number(item.quantity) * Number(item.unit_price),
-          };
-        })
-        .sort((a, b) => b.fecha.localeCompare(a.fecha));
+    const { data: prods } = await supabase.from("products").select("id, name").order("name");
+    const { data: clis } = await supabase.from("customers").select("id, name").order("name");
 
-      setHistorialVentas(historial);
+    setLotes(lotesData || []);
+    setVentasLotes(ventasData || []);
+    setProductos(prods || []);
+    setClientes(clis || []);
+    setLoading(false);
+  }
+
+  async function cargarVentasDetalle() {
+    const rango = obtenerRango(filtro);
+    
+    const { data } = await supabase
+      .from("sale_items")
+      .select("id, quantity, unit_price, unit_cost, sales(sale_date, customer_id, customers(name)), products(name)")
+      .order("sales(sale_date)", { ascending: false });
+
+    if (!data) {
+      setVentasDetalle([]);
+      return;
     }
+
+    const detalle: VentaDetalle[] = data
+      .filter((item: any) => {
+        const fecha = item.sales?.sale_date?.split("T")[0];
+        if (!fecha) return false;
+        if (rango.inicio && fecha < rango.inicio) return false;
+        if (rango.fin && fecha > rango.fin) return false;
+        if (filtroCliente && item.sales?.customer_id !== filtroCliente) return false;
+        return true;
+      })
+      .map((item: any) => {
+        const cantidad = Number(item.quantity);
+        const costo = Number(item.unit_cost);
+        const precio = Number(item.unit_price);
+        const importe = cantidad * precio;
+        const totalCosto = cantidad * costo;
+        const diferencia = precio - costo;
+        const utilidad = importe - totalCosto;
+
+        return {
+          id: item.id,
+          fecha: item.sales?.sale_date?.split("T")[0] || "-",
+          cliente: item.sales?.customers?.name || "Sin cliente",
+          clienteId: item.sales?.customer_id || "",
+          producto: item.products?.name || "Sin producto",
+          cantidad,
+          costoUnitario: costo,
+          precioUnitario: precio,
+          importe,
+          totalCosto,
+          diferencia,
+          utilidad,
+        };
+      });
+
+    setVentasDetalle(detalle);
   }
 
   function calcularResultadoLote(loteId: string) {
-    const lote = lotes.find((l) => l.id === loteId);
-    if (!lote) return { cantidadVendida: 0, totalVenta: 0, totalCosto: 0, utilidad: 0 };
-
     const ventas = ventasLotes.filter((v) => v.lot_id === loteId);
-    const cantidadVendida = ventas.reduce((sum, v) => sum + Number(v.quantity || 0), 0);
-    const totalVenta = ventas.reduce((sum, v) => sum + Number(v.quantity || 0) * Number(v.unit_price || 0), 0);
-    
-    const costoLote = Number(lote.unit_cost || 0);
-    const totalCosto = cantidadVendida * costoLote;
-    const utilidad = totalVenta - totalCosto;
-
-    return { cantidadVendida, totalVenta, totalCosto, utilidad };
+    const cantidadVendida = ventas.reduce((sum, v) => sum + Number(v.quantity), 0);
+    const totalVenta = ventas.reduce((sum, v) => sum + Number(v.quantity) * Number(v.unit_price), 0);
+    const totalCosto = ventas.reduce((sum, v) => sum + Number(v.quantity) * Number(v.unit_cost), 0);
+    return { cantidadVendida, totalVenta, utilidad: totalVenta - totalCosto };
   }
+
+  async function cargarHistorialProducto() {
+    if (!productoId) {
+      setHistorialVentas([]);
+      return;
+    }
+
+    const { data } = await supabase
+      .from("sale_items")
+      .select("quantity, unit_price, sales(sale_date, customers(name))")
+      .eq("product_id", productoId)
+      .order("sales(sale_date)", { ascending: false });
+
+    setHistorialVentas(data || []);
+  }
+
+  useEffect(() => {
+    cargarHistorialProducto();
+  }, [productoId]);
 
   function imprimir() {
     window.print();
   }
 
-  const loteActual = lotes.find((l) => l.id === loteSeleccionado);
-  const resultado = loteSeleccionado ? calcularResultadoLote(loteSeleccionado) : null;
+  function exportarExcel() {
+    const datos = ventasDetalle.map((v) => ({
+      Fecha: v.fecha,
+      Cliente: v.cliente,
+      Producto: v.producto,
+      Cantidad: v.cantidad,
+      "Costo Unit.": v.costoUnitario,
+      "Precio Unit.": v.precioUnitario,
+      "Importe Total": v.importe,
+      "Total Costo": v.totalCosto,
+      "Diferencia": v.diferencia,
+      Utilidad: v.utilidad,
+    }));
 
-  const vendidoReal = loteActual ? Math.max(0, loteActual.quantity_initial - loteActual.quantity_remaining - (loteActual.quantity_merma || 0)) : 0;
+    const ws = XLSX.utils.json_to_sheet(datos);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ventas Detalle");
+    XLSX.writeFile(wb, `Ventas_Detalle_${new Date().toISOString().split("T")[0]}.xlsx`);
+  }
 
   const resumenLotes = lotes.map((lote) => {
-    const res = calcularResultadoLote(lote.id);
-    const vendido = Math.max(0, lote.quantity_initial - lote.quantity_remaining - (lote.quantity_merma || 0));
-    return { ...lote, ...res, vendidoReal: vendido };
-  }).filter((l) => l.vendidoReal > 0 || l.quantity_remaining > 0 || (l.quantity_merma || 0) > 0);
+    const resultado = calcularResultadoLote(lote.id);
+    return { ...lote, ...resultado };
+  });
 
-  const totalCartonesProducto = historialVentas.reduce((sum, v) => sum + v.cantidad, 0);
-  const totalMontoProducto = historialVentas.reduce((sum, v) => sum + v.total, 0);
-  const promedioProducto = totalCartonesProducto > 0 ? totalMontoProducto / totalCartonesProducto : 0;
+  const loteActual = resumenLotes.find((l) => l.id === loteSeleccionado);
+
+  const totalCantidad = ventasDetalle.reduce((sum, v) => sum + v.cantidad, 0);
+  const totalImporte = ventasDetalle.reduce((sum, v) => sum + v.importe, 0);
+  const totalCostoSum = ventasDetalle.reduce((sum, v) => sum + v.totalCosto, 0);
+  const totalUtilidad = ventasDetalle.reduce((sum, v) => sum + v.utilidad, 0);
+
+  const clienteSeleccionado = clientes.find((c) => c.id === filtroCliente);
 
   if (loading) return <div className="p-6">Cargando...</div>;
 
   return (
     <div className="space-y-6 print:p-4">
-      <style jsx global>{`
-        @media print {
-          aside, nav, .print\\:hidden { display: none !important; }
-          main { margin-left: 0 !important; width: 100% !important; }
-        }
-      `}</style>
-
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Reportes</h1>
-          <p className="text-muted-foreground">Análisis de lotes y ventas por producto</p>
+          <p className="text-muted-foreground">Análisis de lotes y ventas</p>
         </div>
-        <Button variant="outline" size="icon" onClick={imprimir} className="print:hidden">
-          <Printer className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-2 print:hidden">
+          <Button variant="outline" onClick={() => setMostrarDetalle(!mostrarDetalle)}>
+            {mostrarDetalle ? "Ver lotes" : "Detalle de ventas"}
+          </Button>
+          {mostrarDetalle && (
+            <>
+              <Button variant="outline" size="icon" onClick={imprimir}>
+                <Printer className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" onClick={exportarExcel}>
+                <FileSpreadsheet className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 items-end print:hidden">
-        <button onClick={() => setFiltro("hoy")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "hoy" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Hoy</button>
-        <button onClick={() => setFiltro("semana")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "semana" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Esta semana</button>
-        <button onClick={() => setFiltro("mes")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "mes" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Este mes</button>
-        <button onClick={() => setFiltro("rango")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "rango" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Rango</button>
-        {filtro === "rango" && (
-          <>
-            <div className="space-y-1"><Label className="text-xs">Desde</Label><Input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} /></div>
-            <div className="space-y-1"><Label className="text-xs">Hasta</Label><Input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} /></div>
-          </>
-        )}
-      </div>
-
-      <Card>
-        <CardHeader><CardTitle>Análisis por producto</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2 print:hidden">
-            <Label>Selecciona un producto</Label>
-            <select
-              className="flex h-10 w-full max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={productoId}
-              onChange={(e) => setProductoId(e.target.value)}
-            >
-              <option value="">Selecciona...</option>
-              {productos.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+      {mostrarDetalle && (
+        <>
+          <div className="flex flex-wrap gap-2 items-end print:hidden">
+            {(["hoy", "semana", "mes", "rango"] as Filtro[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFiltro(f)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  filtro === f ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {f === "hoy" ? "Hoy" : f === "semana" ? "Semana" : f === "mes" ? "Mes" : "Rango"}
+              </button>
+            ))}
+            {filtro === "rango" && (
+              <>
+                <div className="space-y-1">
+                  <Label className="text-xs">Desde</Label>
+                  <Input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="h-9" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Hasta</Label>
+                  <Input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="h-9" />
+                </div>
+              </>
+            )}
           </div>
 
-          {productoId && (
-            <>
-              <div className="grid gap-4 md:grid-cols-4 pt-4">
-                <div className="bg-slate-50 p-4 rounded-lg">
-                  <div className="text-sm text-muted-foreground">Cartones vendidos</div>
-                  <div className="text-2xl font-bold">{totalCartonesProducto.toLocaleString()}</div>
-                </div>
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <div className="text-sm text-muted-foreground">Total vendido</div>
-                  <div className="text-2xl font-bold text-blue-600">${Math.round(totalMontoProducto).toLocaleString()}</div>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-lg">
-                  <div className="text-sm text-muted-foreground">Promedio por cartón</div>
-                  <div className="text-2xl font-bold">${Math.round(promedioProducto).toLocaleString()}</div>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-lg">
-                  <div className="text-sm text-muted-foreground">Número de ventas</div>
-                  <div className="text-2xl font-bold">{historialVentas.length}</div>
-                </div>
-              </div>
+          <div className="flex flex-wrap gap-2 items-center print:hidden">
+            <div className="space-y-1">
+              <Label className="text-xs">Cliente</Label>
+              <select
+                className="flex h-9 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[200px]"
+                value={filtroCliente}
+                onChange={(e) => setFiltroCliente(e.target.value)}
+              >
+                <option value="">Todos los clientes</option>
+                {clientes.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            {filtroCliente && (
+              <Button variant="ghost" size="sm" onClick={() => setFiltroCliente("")} className="mt-5">
+                Limpiar
+              </Button>
+            )}
+          </div>
 
-              <div className="border rounded-lg overflow-hidden">
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Total cartones</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{totalCantidad.toLocaleString()}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Importe total</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">${Math.round(totalImporte).toLocaleString()}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Total costo</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">${Math.round(totalCostoSum).toLocaleString()}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Total utilidad</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${totalUtilidad >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                  ${Math.round(totalUtilidad).toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                Detalle de ventas
+                {clienteSeleccionado && <span className="ml-2 text-muted-foreground font-normal">- {clienteSeleccionado.name}</span>}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {ventasDetalle.length === 0 ? (
+                <p className="text-muted-foreground">Sin ventas en este período</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50">
+                        <th className="text-left py-2 px-2">Fecha</th>
+                        <th className="text-left py-2 px-2">Cliente</th>
+                        <th className="text-left py-2 px-2">Producto</th>
+                        <th className="text-right py-2 px-2">Cantidad</th>
+                        <th className="text-right py-2 px-2">Costo unit.</th>
+                        <th className="text-right py-2 px-2">Precio unit.</th>
+                        <th className="text-right py-2 px-2">Importe total</th>
+                        <th className="text-right py-2 px-2">Total costo</th>
+                        <th className="text-right py-2 px-2">Diferencia</th>
+                        <th className="text-right py-2 px-2">Utilidad</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ventasDetalle.map((v) => (
+                        <tr key={v.id} className="border-b hover:bg-slate-50">
+                          <td className="py-2 px-2">{v.fecha}</td>
+                          <td className="py-2 px-2">{v.cliente}</td>
+                          <td className="py-2 px-2">{v.producto}</td>
+                          <td className="py-2 px-2 text-right">{v.cantidad}</td>
+                          <td className="py-2 px-2 text-right">${v.costoUnitario.toFixed(2)}</td>
+                          <td className="py-2 px-2 text-right">${v.precioUnitario.toFixed(2)}</td>
+                          <td className="py-2 px-2 text-right font-medium">${Math.round(v.importe).toLocaleString()}</td>
+                          <td className="py-2 px-2 text-right">${Math.round(v.totalCosto).toLocaleString()}</td>
+                          <td className={`py-2 px-2 text-right ${v.diferencia >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                            ${v.diferencia.toFixed(2)}
+                          </td>
+                          <td className={`py-2 px-2 text-right font-medium ${v.utilidad >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                            ${Math.round(v.utilidad).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 bg-slate-100 font-bold">
+                        <td className="py-2 px-2" colSpan={3}>TOTAL</td>
+                        <td className="py-2 px-2 text-right">{totalCantidad.toLocaleString()}</td>
+                        <td className="py-2 px-2"></td>
+                        <td className="py-2 px-2"></td>
+                        <td className="py-2 px-2 text-right">${Math.round(totalImporte).toLocaleString()}</td>
+                        <td className="py-2 px-2 text-right">${Math.round(totalCostoSum).toLocaleString()}</td>
+                        <td className="py-2 px-2"></td>
+                        <td className={`py-2 px-2 text-right ${totalUtilidad >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                          ${Math.round(totalUtilidad).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {!mostrarDetalle && (
+        <>
+          <div className="flex gap-4 items-end">
+            <div className="space-y-1">
+              <Label className="text-xs">Filtrar por producto</Label>
+              <select
+                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[200px]"
+                value={productoId}
+                onChange={(e) => setProductoId(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {productos.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {productoId && historialVentas.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Historial de ventas del producto</CardTitle>
+              </CardHeader>
+              <CardContent>
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="text-left py-2 px-3">Fecha</th>
-                      <th className="text-left py-2 px-3">Cliente</th>
-                      <th className="text-right py-2 px-3">Cartones</th>
-                      <th className="text-right py-2 px-3">Precio</th>
-                      <th className="text-right py-2 px-3">Total</th>
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2">Fecha</th>
+                      <th className="text-left py-2">Cliente</th>
+                      <th className="text-right py-2">Cantidad</th>
+                      <th className="text-right py-2">Precio</th>
+                      <th className="text-right py-2">Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {historialVentas.length === 0 ? (
-                      <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sin ventas en este período</td></tr>
-                    ) : (
-                      historialVentas.map((v, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="py-2 px-3">{v.fecha}</td>
-                          <td className="py-2 px-3">{v.cliente}</td>
-                          <td className="py-2 px-3 text-right font-medium">{v.cantidad}</td>
-                          <td className="py-2 px-3 text-right">${v.precio.toFixed(2)}</td>
-                          <td className="py-2 px-3 text-right font-medium">${Math.round(v.total).toLocaleString()}</td>
-                        </tr>
-                      ))
-                    )}
+                    {historialVentas.map((v: any, i) => (
+                      <tr key={i} className="border-b">
+                        <td className="py-2">{v.sales?.sale_date?.split("T")[0] || "-"}</td>
+                        <td className="py-2">{v.sales?.customers?.name || "-"}</td>
+                        <td className="py-2 text-right">{v.quantity}</td>
+                        <td className="py-2 text-right">${Number(v.unit_price).toFixed(2)}</td>
+                        <td className="py-2 text-right font-medium">${Math.round(Number(v.quantity) * Number(v.unit_price)).toLocaleString()}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
-              </div>
-            </>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Analizar lote específico</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2 print:hidden">
-            <Label>Selecciona un lote</Label>
-            <select
-              className="flex h-10 w-full max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={loteSeleccionado}
-              onChange={(e) => setLoteSeleccionado(e.target.value)}
-            >
-              <option value="">Selecciona...</option>
-              {lotes.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.products?.name} - {l.purchase_date} - ${l.unit_cost} (Inicial: {l.quantity_initial}, Restante: {l.quantity_remaining})
-                </option>
-              ))}
-            </select>
-          </div>
 
           {loteActual && (
-            <div className="grid gap-4 md:grid-cols-4 pt-4">
-              <div className="bg-slate-50 p-4 rounded-lg">
-                <div className="text-sm text-muted-foreground">Cantidad inicial</div>
-                <div className="text-2xl font-bold">{loteActual.quantity_initial}</div>
-              </div>
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <div className="text-sm text-muted-foreground">Vendido</div>
-                <div className="text-2xl font-bold text-orange-600">{vendidoReal}</div>
-              </div>
-              <div className="bg-green-50 p-4 rounded-lg">
-                <div className="text-sm text-muted-foreground">Restante</div>
-                <div className="text-2xl font-bold text-green-600">{loteActual.quantity_remaining}</div>
-              </div>
-              <div className="bg-slate-50 p-4 rounded-lg">
-                <div className="text-sm text-muted-foreground">Costo unitario</div>
-                <div className="text-2xl font-bold">${loteActual.unit_cost.toFixed(2)}</div>
-              </div>
-              {(loteActual.quantity_merma || 0) > 0 && (
-                <div className="bg-red-50 p-4 rounded-lg">
-                  <div className="text-sm text-muted-foreground">Merma</div>
-                  <div className="text-2xl font-bold text-red-600">{loteActual.quantity_merma}</div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Detalle del lote</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Producto</p>
+                    <p className="font-medium">{loteActual.products?.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Fecha compra</p>
+                    <p className="font-medium">{loteActual.purchase_date}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Cantidad inicial</p>
+                    <p className="font-medium">{loteActual.quantity_initial}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Restante</p>
+                    <p className="font-medium">{loteActual.quantity_remaining}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Vendido</p>
+                    <p className="font-medium text-orange-600">{loteActual.cantidadVendida}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total venta</p>
+                    <p className="font-medium">${Math.round(loteActual.totalVenta).toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Utilidad</p>
+                    <p className={`font-medium ${loteActual.utilidad >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                      ${Math.round(loteActual.utilidad).toLocaleString()}
+                    </p>
+                  </div>
                 </div>
-              )}
-              {resultado && resultado.cantidadVendida > 0 && (
-                <>
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <div className="text-sm text-muted-foreground">Total vendido (vinculado)</div>
-                    <div className="text-2xl font-bold text-blue-600">${resultado.totalVenta.toLocaleString()}</div>
-                  </div>
-                  <div className="bg-slate-50 p-4 rounded-lg">
-                    <div className="text-sm text-muted-foreground">Costo total vendido</div>
-                    <div className="text-2xl font-bold">${resultado.totalCosto.toLocaleString()}</div>
-                  </div>
-                  <div className={`p-4 rounded-lg ${resultado.utilidad >= 0 ? "bg-green-50" : "bg-orange-50"}`}>
-                    <div className="text-sm text-muted-foreground">{resultado.utilidad >= 0 ? "Utilidad" : "Diferencia"}</div>
-                    <div className={`text-2xl font-bold ${resultado.utilidad >= 0 ? "text-green-600" : "text-orange-600"}`}>
-                      ${Math.abs(resultado.utilidad).toLocaleString()}
-                    </div>
-                  </div>
-                </>
-              )}
-              <div className="bg-slate-50 p-4 rounded-lg">
-                <div className="text-sm text-muted-foreground">Proveedor</div>
-                <div className="text-lg font-bold">{loteActual.supplier || "-"}</div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Resumen de lotes</CardTitle></CardHeader>
-        <CardContent>
-          {resumenLotes.length === 0 ? (
-            <p className="text-muted-foreground">Sin lotes</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3">Producto</th>
-                  <th className="text-left py-3">Fecha compra</th>
-                  <th className="text-right py-3">Inicial</th>
-                  <th className="text-right py-3">Vendido</th>
-                  <th className="text-right py-3">Merma</th>
-                  <th className="text-right py-3">Restante</th>
-                  <th className="text-right py-3">Costo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resumenLotes.map((lote) => (
-                  <tr key={lote.id} className="border-b cursor-pointer hover:bg-slate-50" onClick={() => setLoteSeleccionado(lote.id)}>
-                    <td className="py-3">{lote.products?.name || "-"}</td>
-                    <td className="py-3">{lote.purchase_date}</td>
-                    <td className="py-3 text-right">{lote.quantity_initial}</td>
-                    <td className="py-3 text-right text-orange-600">{lote.vendidoReal}</td>
-                    <td className="py-3 text-right text-red-600">{lote.quantity_merma || 0}</td>
-                    <td className="py-3 text-right font-medium text-green-600">{lote.quantity_remaining}</td>
-                    <td className="py-3 text-right">${lote.unit_cost.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Resumen de lotes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {resumenLotes.length === 0 ? (
+                <p className="text-muted-foreground">Sin lotes</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3">Producto</th>
+                      <th className="text-left py-3">Fecha compra</th>
+                      <th className="text-right py-3">Inicial</th>
+                      <th className="text-right py-3">Vendido</th>
+                      <th className="text-right py-3">Restante</th>
+                      <th className="text-right py-3">Total venta</th>
+                      <th className="text-right py-3">Utilidad</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resumenLotes.map((lote) => (
+                      <tr
+                        key={lote.id}
+                        className="border-b cursor-pointer hover:bg-slate-50"
+                        onClick={() => setLoteSeleccionado(lote.id)}
+                      >
+                        <td className="py-3">{lote.products?.name || "-"}</td>
+                        <td className="py-3">{lote.purchase_date}</td>
+                        <td className="py-3 text-right">{lote.quantity_initial}</td>
+                        <td className="py-3 text-right">{lote.cantidadVendida}</td>
+                        <td className="py-3 text-right">{lote.quantity_remaining}</td>
+                        <td className="py-3 text-right">${Math.round(lote.totalVenta).toLocaleString()}</td>
+                        <td className={`py-3 text-right ${lote.utilidad >= 0 ? "text-green-600" : "text-orange-600"}`}>
+                          ${Math.round(lote.utilidad).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

@@ -18,6 +18,7 @@ type Venta = {
   total_cost: number;
   customers: { name: string } | null;
   cartones?: number;
+  utilidadReal?: number;
 };
 type Filtro = "hoy" | "semana" | "mes" | "rango";
 
@@ -25,6 +26,8 @@ export default function VentasPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [cartonesVendidos, setCartonesVendidos] = useState(0);
+  const [totalVentasCalc, setTotalVentasCalc] = useState(0);
+  const [totalCostoCalc, setTotalCostoCalc] = useState(0);
   const [filtro, setFiltro] = useState<Filtro>("mes");
   const [fechaInicio, setFechaInicio] = useState("");
   const [fechaFin, setFechaFin] = useState("");
@@ -66,26 +69,41 @@ export default function VentasPage() {
 
     if (data && data.length > 0) {
       const ventasIds = data.map((v) => v.id);
-      const { data: items } = await supabase.from("sale_items").select("sale_id, quantity").in("sale_id", ventasIds);
+      const { data: items } = await supabase.from("sale_items").select("sale_id, quantity, unit_price, unit_cost").in("sale_id", ventasIds);
 
       const cartonesPorVenta: Record<string, number> = {};
+      const utilidadPorVenta: Record<string, number> = {};
       let totalCartones = 0;
+      let totalVentasSum = 0;
+      let totalCostoSum = 0;
+
       if (items) {
         items.forEach((item) => {
           cartonesPorVenta[item.sale_id] = (cartonesPorVenta[item.sale_id] || 0) + Number(item.quantity);
+          const ventaItem = Number(item.quantity) * Number(item.unit_price);
+          const costoItem = Number(item.quantity) * Number(item.unit_cost || 0);
+          utilidadPorVenta[item.sale_id] = (utilidadPorVenta[item.sale_id] || 0) + (ventaItem - costoItem);
           totalCartones += Number(item.quantity);
+          totalVentasSum += ventaItem;
+          totalCostoSum += costoItem;
         });
       }
+
       setCartonesVendidos(totalCartones);
+      setTotalVentasCalc(totalVentasSum);
+      setTotalCostoCalc(totalCostoSum);
 
       const ventasConCartones = data.map((v) => ({
         ...v,
         cartones: cartonesPorVenta[v.id] || 0,
+        utilidadReal: utilidadPorVenta[v.id] || 0,
       }));
       setVentas(ventasConCartones);
     } else {
       setVentas([]);
       setCartonesVendidos(0);
+      setTotalVentasCalc(0);
+      setTotalCostoCalc(0);
     }
   }
 
@@ -116,10 +134,9 @@ export default function VentasPage() {
   }
 
   const ventasFiltradas = ventas.filter((v) => !filtroCliente || v.customer_id === filtroCliente);
-  const totalVentas = ventasFiltradas.reduce((sum, v) => sum + Number(v.total_amount), 0);
-  const totalCosto = ventasFiltradas.reduce((sum, v) => sum + Number(v.total_cost), 0);
-  const utilidad = totalVentas - totalCosto;
+  const utilidad = totalVentasCalc - totalCostoCalc;
   const perdidaPorCarton = cartonesVendidos > 0 ? utilidad / cartonesVendidos : 0;
+  const esPositivo = utilidad >= 0;
 
   return (
     <div className="space-y-6">
@@ -132,46 +149,10 @@ export default function VentasPage() {
       </div>
 
       <div className="flex flex-wrap gap-2 items-end">
-        <button
-          onClick={() => setFiltro("hoy")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            filtro === "hoy"
-              ? "bg-blue-600 text-white shadow-md"
-              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-          }`}
-        >
-          Hoy
-        </button>
-        <button
-          onClick={() => setFiltro("semana")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            filtro === "semana"
-              ? "bg-blue-600 text-white shadow-md"
-              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-          }`}
-        >
-          Esta semana
-        </button>
-        <button
-          onClick={() => setFiltro("mes")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            filtro === "mes"
-              ? "bg-blue-600 text-white shadow-md"
-              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-          }`}
-        >
-          Este mes
-        </button>
-        <button
-          onClick={() => setFiltro("rango")}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            filtro === "rango"
-              ? "bg-blue-600 text-white shadow-md"
-              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-          }`}
-        >
-          Rango
-        </button>
+        <button onClick={() => setFiltro("hoy")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "hoy" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Hoy</button>
+        <button onClick={() => setFiltro("semana")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "semana" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Esta semana</button>
+        <button onClick={() => setFiltro("mes")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "mes" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Este mes</button>
+        <button onClick={() => setFiltro("rango")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filtro === "rango" ? "bg-blue-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>Rango</button>
 
         {filtro === "rango" && (
           <>
@@ -198,23 +179,23 @@ export default function VentasPage() {
       <div className="grid gap-4 md:grid-cols-5">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total ventas</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">${Math.round(totalVentas).toLocaleString()}</div></CardContent>
+          <CardContent><div className="text-2xl font-bold">${Math.round(totalVentasCalc).toLocaleString()}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Cartones vendidos</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold">{cartonesVendidos.toLocaleString()}</div></CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Pérdida / cartón</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{esPositivo ? "Ganancia" : "Pérdida"} / cartón</CardTitle></CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${perdidaPorCarton >= 0 ? "text-green-600" : "text-orange-600"}`}>
+            <div className={`text-2xl font-bold ${esPositivo ? "text-green-600" : "text-orange-600"}`}>
               ${Math.round(Math.abs(perdidaPorCarton)).toLocaleString()}
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Utilidad</CardTitle></CardHeader>
-          <CardContent><div className={`text-2xl font-bold ${utilidad >= 0 ? "text-green-600" : "text-red-600"}`}>${Math.round(utilidad).toLocaleString()}</div></CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{esPositivo ? "Ganancia" : "Utilidad"}</CardTitle></CardHeader>
+          <CardContent><div className={`text-2xl font-bold ${esPositivo ? "text-green-600" : "text-red-600"}`}>${Math.round(Math.abs(utilidad)).toLocaleString()}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Número de ventas</CardTitle></CardHeader>
@@ -268,7 +249,7 @@ export default function VentasPage() {
               </thead>
               <tbody>
                 {ventasFiltradas.map((venta) => {
-                  const util = Number(venta.total_amount) - Number(venta.total_cost);
+                  const util = venta.utilidadReal || 0;
                   return (
                     <tr key={venta.id} className="border-b hover:bg-slate-50">
                       <td className="py-3">{venta.sale_date.split("T")[0]}</td>
@@ -278,25 +259,13 @@ export default function VentasPage() {
                       <td className={`py-3 text-right ${util >= 0 ? "text-green-600" : "text-red-600"}`}>${Math.round(util).toLocaleString()}</td>
                       <td className="py-3 text-right">
                         <div className="flex gap-1 justify-end">
-                          <button
-                            onClick={() => window.location.href = `/ventas/${venta.id}`}
-                            className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors"
-                            title="Ver detalle"
-                          >
+                          <button onClick={() => window.location.href = `/ventas/${venta.id}`} className="p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors" title="Ver detalle">
                             <Eye className="h-4 w-4" />
                           </button>
-                          <button
-                            onClick={() => window.location.href = `/ventas/${venta.id}/editar`}
-                            className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors"
-                            title="Editar"
-                          >
+                          <button onClick={() => window.location.href = `/ventas/${venta.id}/editar`} className="p-2 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors" title="Editar">
                             <Pencil className="h-4 w-4" />
                           </button>
-                          <button
-                            onClick={() => eliminarVenta(venta.id)}
-                            className="p-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
-                            title="Eliminar"
-                          >
+                          <button onClick={() => eliminarVenta(venta.id)} className="p-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors" title="Eliminar">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>

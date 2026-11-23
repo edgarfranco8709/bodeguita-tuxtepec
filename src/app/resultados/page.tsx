@@ -44,48 +44,55 @@ export default function ResultadosPage() {
     const rango = obtenerRango();
     const rangoAnt = obtenerRango(true);
 
-    const { data: ventas } = await supabase.from("sales").select("id, total_amount, total_cost").gte("sale_date", rango.inicio).lte("sale_date", rango.fin);
-    const { data: ventasAnt } = await supabase.from("sales").select("id, total_amount, total_cost").gte("sale_date", rangoAnt.inicio).lte("sale_date", rangoAnt.fin);
+    // Cargar ventas y sale_items para calcular costos correctamente
+    const { data: ventas } = await supabase.from("sales").select("id").gte("sale_date", rango.inicio).lte("sale_date", rango.fin);
+    const { data: ventasAnt } = await supabase.from("sales").select("id").gte("sale_date", rangoAnt.inicio).lte("sale_date", rangoAnt.fin);
+    const { data: items } = await supabase.from("sale_items").select("sale_id, quantity, unit_price, unit_cost, lot_id");
     
-    // Cargar categorías primero
+    // Cargar lotes de bonificación
+    const { data: lotesBonif } = await supabase.from("purchase_lots").select("id").eq("supplier", "Grupo Modelo Tuxtepec-Bonificación");
+    const idsLotesBonif = new Set(lotesBonif?.map((l) => l.id) || []);
+
+    // Cargar categorías y gastos
     const { data: categorias } = await supabase.from("expense_categories").select("id, name");
-    
-    // Cargar gastos sin join
     const { data: gastosData } = await supabase.from("expenses").select("amount, category_id").gte("expense_date", rango.inicio).lte("expense_date", rango.fin);
     const { data: gastosAntData } = await supabase.from("expenses").select("amount").gte("expense_date", rangoAnt.inicio).lte("expense_date", rangoAnt.fin);
-    
-    const { data: items } = await supabase.from("sale_items").select("sale_id, quantity, unit_price, lot_id");
 
+    // Calcular mes actual desde sale_items
     let ing = 0, costo = 0, cart = 0, bonif = 0;
-    if (ventas) {
-      ing = ventas.reduce((s, v) => s + Number(v.total_amount), 0);
-      costo = ventas.reduce((s, v) => s + Number(v.total_cost), 0);
-      const ids = ventas.map((v) => v.id);
-      if (items) {
-        cart = items.filter((i) => ids.includes(i.sale_id)).reduce((s, i) => s + Number(i.quantity), 0);
-        for (const item of items) {
-          if (!ids.includes(item.sale_id) || !item.lot_id) continue;
-          const { data: lote } = await supabase.from("purchase_lots").select("supplier").eq("id", item.lot_id).single();
-          if (lote && lote.supplier === "Grupo Modelo Tuxtepec-Bonificación") bonif += Number(item.quantity) * Number(item.unit_price);
+    if (ventas && items) {
+      const ids = new Set(ventas.map((v) => v.id));
+      const itemsFiltrados = items.filter((i) => ids.has(i.sale_id));
+      
+      ing = itemsFiltrados.reduce((s, i) => s + Number(i.quantity) * Number(i.unit_price), 0);
+      costo = itemsFiltrados.reduce((s, i) => s + Number(i.quantity) * Number(i.unit_cost || 0), 0);
+      cart = itemsFiltrados.reduce((s, i) => s + Number(i.quantity), 0);
+      
+      // Bonificación vendida
+      for (const item of itemsFiltrados) {
+        if (item.lot_id && idsLotesBonif.has(item.lot_id)) {
+          bonif += Number(item.quantity) * Number(item.unit_price);
         }
       }
     }
 
+    // Calcular mes anterior desde sale_items
     let ingAnt = 0, costoA = 0, bonifAnt = 0;
-    if (ventasAnt) {
-      ingAnt = ventasAnt.reduce((s, v) => s + Number(v.total_amount), 0);
-      costoA = ventasAnt.reduce((s, v) => s + Number(v.total_cost), 0);
-      const idsAnt = ventasAnt.map((v) => v.id);
-      if (items) {
-        for (const item of items) {
-          if (!idsAnt.includes(item.sale_id) || !item.lot_id) continue;
-          const { data: lote } = await supabase.from("purchase_lots").select("supplier").eq("id", item.lot_id).single();
-          if (lote && lote.supplier === "Grupo Modelo Tuxtepec-Bonificación") bonifAnt += Number(item.quantity) * Number(item.unit_price);
+    if (ventasAnt && items) {
+      const idsAnt = new Set(ventasAnt.map((v) => v.id));
+      const itemsFiltradosAnt = items.filter((i) => idsAnt.has(i.sale_id));
+      
+      ingAnt = itemsFiltradosAnt.reduce((s, i) => s + Number(i.quantity) * Number(i.unit_price), 0);
+      costoA = itemsFiltradosAnt.reduce((s, i) => s + Number(i.quantity) * Number(i.unit_cost || 0), 0);
+      
+      for (const item of itemsFiltradosAnt) {
+        if (item.lot_id && idsLotesBonif.has(item.lot_id)) {
+          bonifAnt += Number(item.quantity) * Number(item.unit_price);
         }
       }
     }
 
-    // Agrupar gastos por categoría manualmente
+    // Agrupar gastos por categoría
     const gastosMap: Record<string, number> = {};
     if (gastosData && categorias) {
       gastosData.forEach((g) => {
@@ -160,7 +167,7 @@ export default function ResultadosPage() {
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Utilidad Bruta</CardTitle></CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${Math.round(utilidadBruta).toLocaleString()}</div>
+            <div className={`text-2xl font-bold ${utilidadBruta >= 0 ? "text-green-600" : "text-orange-600"}`}>${Math.round(utilidadBruta).toLocaleString()}</div>
             <div className="text-sm text-muted-foreground">Margen {pct(utilidadBruta, ingresos).toFixed(1)}%</div>
           </CardContent>
         </Card>
@@ -209,7 +216,7 @@ export default function ResultadosPage() {
               </tr>
               <tr className="border-b bg-green-100 font-medium">
                 <td className="py-2 px-2">Utilidad Bruta</td>
-                <td className="py-2 px-2 text-right font-bold">${Math.round(utilidadBruta).toLocaleString()}</td>
+                <td className={`py-2 px-2 text-right font-bold ${utilidadBruta >= 0 ? "text-green-700" : "text-orange-700"}`}>${Math.round(utilidadBruta).toLocaleString()}</td>
                 <td className="py-2 px-2 text-right font-bold">{pct(utilidadBruta, ingresos).toFixed(1)}%</td>
                 <td className="py-2 px-2 text-right">${Math.round(utilidadBrutaAnt).toLocaleString()}</td>
                 <td className="py-2 px-2 text-right">{pct(utilidadBrutaAnt, ingresosAnt).toFixed(1)}%</td>
