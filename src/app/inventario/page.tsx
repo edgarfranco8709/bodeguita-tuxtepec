@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Package, DollarSign, Printer, Home as HomeIcon, AlertTriangle } from "lucide-react";
+import { Package, DollarSign, Printer, Home as HomeIcon, AlertTriangle, Gift } from "lucide-react";
 
 type Producto = {
   id: string;
@@ -18,6 +18,7 @@ type Producto = {
   ventas: number;
   compras: number;
   merma: number;
+  stock_bonif: number;
 };
 
 type Lote = {
@@ -109,6 +110,13 @@ export default function InventarioPage() {
         const valorReal = lotesProd.reduce((sum, l) => sum + Number(l.quantity_remaining) * Number(l.unit_cost), 0);
         const mermaProd = lotesProd.reduce((sum, l) => sum + Number(l.quantity_merma || 0), 0);
 
+        // Stock de bonificación (lotes con supplier que contenga "Bonificación" o "Bonificacion")
+        const lotesBonif = lotesProd.filter((l) => {
+          const sup = (l.supplier || "").toLowerCase();
+          return sup.includes("bonificación") || sup.includes("bonificacion");
+        });
+        const stockBonif = lotesBonif.reduce((sum, l) => sum + Number(l.quantity_remaining), 0);
+
         const invInicial = inicial?.find((i) => i.product_id === prod.id);
         const stockInicial = Number(invInicial?.quantity || 0);
         const costoIni = Number(invInicial?.unit_cost || 0);
@@ -132,6 +140,7 @@ export default function InventarioPage() {
           ventas: totalVentas,
           compras: totalCompras,
           merma: mermaProd,
+          stock_bonif: stockBonif,
         });
 
         cantMap[prod.id] = stockInicial > 0 ? stockInicial.toString() : "";
@@ -270,6 +279,7 @@ export default function InventarioPage() {
   const invInicialTotal = productosFiltrados.reduce((sum, p) => sum + p.inv_inicial, 0);
   const valorInicialTotal = productosFiltrados.reduce((sum, p) => sum + p.inv_inicial * p.costo_inicial, 0);
   const mermaTotal = productosFiltrados.reduce((sum, p) => sum + p.merma, 0);
+  const stockBonifTotal = productosFiltrados.reduce((sum, p) => sum + p.stock_bonif, 0);
 
   const productoMedia = productos.find((p) => p.name.toLowerCase().includes("media victoria"));
   const lotesMedia = productoMedia
@@ -507,7 +517,7 @@ export default function InventarioPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Stock Total</CardTitle>
@@ -548,6 +558,16 @@ export default function InventarioPage() {
             <p className="text-xs text-muted-foreground">cartones</p>
           </CardContent>
         </Card>
+        <Card className="bg-blue-50 border-blue-200">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-blue-700">Stock Bonificación</CardTitle>
+            <Gift className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{stockBonifTotal.toLocaleString()}</div>
+            <p className="text-xs text-blue-600">cartones disponibles</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Valor inicial $</CardTitle>
@@ -574,6 +594,7 @@ export default function InventarioPage() {
                 <th className="text-right py-3">Ventas</th>
                 <th className="text-right py-3">Merma</th>
                 <th className="text-right py-3">Stock actual</th>
+                <th className="text-right py-3 text-blue-600">Stock Bonif.</th>
                 <th className="text-right py-3">Valor actual</th>
               </tr>
             </thead>
@@ -586,6 +607,7 @@ export default function InventarioPage() {
                   <td className="py-3 text-right text-orange-600">{prod.ventas.toLocaleString()}</td>
                   <td className="py-3 text-right text-red-600">{prod.merma.toLocaleString()}</td>
                   <td className={`py-3 text-right font-medium ${prod.stock_actual < 0 ? "text-red-600" : ""}`}>{prod.stock_actual.toLocaleString()}</td>
+                  <td className={`py-3 text-right font-medium ${prod.stock_bonif > 0 ? "text-blue-600" : "text-muted-foreground"}`}>{prod.stock_bonif.toLocaleString()}</td>
                   <td className={`py-3 text-right ${prod.valor_actual < 0 ? "text-red-600" : ""}`}>${Math.round(prod.valor_actual).toLocaleString()}</td>
                 </tr>
               ))}

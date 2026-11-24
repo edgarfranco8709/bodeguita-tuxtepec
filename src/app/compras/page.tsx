@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
-import { Pencil, Trash2, Home as HomeIcon, Printer, Plus } from "lucide-react";
+import { Pencil, Trash2, Home as HomeIcon, Printer, Plus, X } from "lucide-react";
 import * as XLSX from "xlsx";
 
 type Producto = { id: string; name: string };
@@ -26,6 +26,7 @@ type Lote = {
   products: { name: string } | null;
 };
 type ItemTemp = {
+  id?: string;
   productoId: string;
   nombre: string;
   cantidad: number;
@@ -65,6 +66,10 @@ export default function ComprasPage() {
   const [nuevoMontoEfGrupo, setNuevoMontoEfGrupo] = useState("");
   const [nuevoMontoBaGrupo, setNuevoMontoBaGrupo] = useState("");
   const [itemsTemp, setItemsTemp] = useState<ItemTemp[]>([]);
+  const [itemsGrupoEdit, setItemsGrupoEdit] = useState<ItemTemp[]>([]);
+  const [productoNuevoGrupo, setProductoNuevoGrupo] = useState("");
+  const [cantidadNuevaGrupo, setCantidadNuevaGrupo] = useState("");
+  const [costoNuevoGrupo, setCostoNuevoGrupo] = useState("");
 
   useEffect(() => {
     const hoy = new Date().toISOString().split("T")[0];
@@ -178,7 +183,6 @@ export default function ComprasPage() {
         bankAmt = Number(montoBanco) * proporcion;
       }
 
-      // Verificar si hay lotes con remaining negativo para este producto
       const { data: lotesNegativos } = await supabase
         .from("purchase_lots")
         .select("id, quantity_remaining")
@@ -187,26 +191,17 @@ export default function ComprasPage() {
         .order("purchase_date", { ascending: true });
 
       let cantidadParaNuevoLote = item.cantidad;
-      let cantidadUsadaParaCubrir = 0;
 
       if (lotesNegativos && lotesNegativos.length > 0) {
         for (const loteNeg of lotesNegativos) {
           if (cantidadParaNuevoLote <= 0) break;
-          
           const faltante = Math.abs(Number(loteNeg.quantity_remaining));
           const cubrir = Math.min(cantidadParaNuevoLote, faltante);
-          
-          await supabase
-            .from("purchase_lots")
-            .update({ quantity_remaining: Number(loteNeg.quantity_remaining) + cubrir })
-            .eq("id", loteNeg.id);
-          
+          await supabase.from("purchase_lots").update({ quantity_remaining: Number(loteNeg.quantity_remaining) + cubrir }).eq("id", loteNeg.id);
           cantidadParaNuevoLote -= cubrir;
-          cantidadUsadaParaCubrir += cubrir;
         }
       }
 
-      // Crear el nuevo lote con la cantidad restante
       await supabase.from("purchase_lots").insert({
         product_id: item.productoId,
         quantity_initial: item.cantidad,
@@ -218,10 +213,6 @@ export default function ComprasPage() {
         cash_amount: cashAmt,
         bank_amount: bankAmt,
       });
-
-      if (cantidadUsadaParaCubrir > 0) {
-        console.log(`Se cubrieron ${cantidadUsadaParaCubrir} unidades de faltante negativo para ${item.nombre}`);
-      }
     }
     
     alert("Compra registrada");
@@ -288,38 +279,102 @@ export default function ComprasPage() {
       setNuevoMontoEfGrupo(totalEf.toString());
       setNuevoMontoBaGrupo(totalBa.toString());
     }
+    // Cargar productos del grupo para editar
+    const items = lotesDelGrupo.map((l) => ({
+      id: l.id,
+      productoId: l.product_id,
+      nombre: l.products?.name || "",
+      cantidad: l.quantity_initial,
+      costo: l.unit_cost,
+    }));
+    setItemsGrupoEdit(items);
+    setProductoNuevoGrupo("");
+    setCantidadNuevaGrupo("");
+    setCostoNuevoGrupo("");
   }
+
+  function agregarProductoAGrupoEdit() {
+    if (!productoNuevoGrupo || !cantidadNuevaGrupo || !costoNuevoGrupo) { alert("Completa los campos"); return; }
+    const prod = productos.find((p) => p.id === productoNuevoGrupo);
+    setItemsGrupoEdit([...itemsGrupoEdit, {
+      productoId: productoNuevoGrupo,
+      nombre: prod?.name || "",
+      cantidad: Number(cantidadNuevaGrupo),
+      costo: Number(costoNuevoGrupo),
+    }]);
+    setProductoNuevoGrupo("");
+    setCantidadNuevaGrupo("");
+    setCostoNuevoGrupo("");
+  }
+
+  function quitarProductoDeGrupoEdit(idx: number) {
+    setItemsGrupoEdit(itemsGrupoEdit.filter((_, i) => i !== idx));
+  }
+
+  const totalGrupoEdit = itemsGrupoEdit.reduce((sum, i) => sum + i.cantidad * i.costo, 0);
 
   async function guardarEdicionGrupo() {
     if (!editandoGrupo) return;
+    setGuardando(true);
+
     const lotesDelGrupo = lotes.filter(
       (l) => l.purchase_date === editandoGrupo.fecha && (l.supplier || "Sin proveedor") === editandoGrupo.proveedor
     );
-    const totalGrupo = lotesDelGrupo.reduce((sum, l) => sum + l.quantity_initial * l.unit_cost, 0);
-    
-    for (const lote of lotesDelGrupo) {
-      const proporcion = totalGrupo > 0 ? (lote.quantity_initial * lote.unit_cost) / totalGrupo : 0;
+    const idsOriginales = new Set(lotesDelGrupo.map((l) => l.id));
+    const idsEnForm = new Set(itemsGrupoEdit.filter((i) => i.id).map((i) => i.id));
+
+    // Eliminar productos que ya no están
+    for (const id of idsOriginales) {
+      if (!idsEnForm.has(id)) {
+        await supabase.from("purchase_lots").delete().eq("id", id);
+      }
+    }
+
+    // Actualizar o crear productos
+    for (const item of itemsGrupoEdit) {
+      const totalItem = item.cantidad * item.costo;
+      const proporcion = totalGrupoEdit > 0 ? totalItem / totalGrupoEdit : 0;
       let cashAmt = 0, bankAmt = 0;
-      
-      if (nuevaFormaPagoGrupo === "Efectivo") {
-        cashAmt = lote.quantity_initial * lote.unit_cost;
-      } else if (nuevaFormaPagoGrupo === "Transferencia") {
-        bankAmt = lote.quantity_initial * lote.unit_cost;
-      } else if (nuevaFormaPagoGrupo === "Mixta") {
+
+      if (nuevaFormaPagoGrupo === "Efectivo") cashAmt = totalItem;
+      else if (nuevaFormaPagoGrupo === "Transferencia") bankAmt = totalItem;
+      else if (nuevaFormaPagoGrupo === "Mixta") {
         cashAmt = Number(nuevoMontoEfGrupo) * proporcion;
         bankAmt = Number(nuevoMontoBaGrupo) * proporcion;
       }
-      
-      await supabase.from("purchase_lots").update({
-        purchase_date: nuevaFechaGrupo,
-        supplier: nuevoProveedorGrupo,
-        payment_method: nuevaFormaPagoGrupo,
-        cash_amount: cashAmt,
-        bank_amount: bankAmt,
-      }).eq("id", lote.id);
+
+      if (item.id) {
+        // Actualizar existente
+        await supabase.from("purchase_lots").update({
+          product_id: item.productoId,
+          quantity_initial: item.cantidad,
+          unit_cost: item.costo,
+          purchase_date: nuevaFechaGrupo,
+          supplier: nuevoProveedorGrupo,
+          payment_method: nuevaFormaPagoGrupo,
+          cash_amount: cashAmt,
+          bank_amount: bankAmt,
+        }).eq("id", item.id);
+      } else {
+        // Crear nuevo
+        await supabase.from("purchase_lots").insert({
+          product_id: item.productoId,
+          quantity_initial: item.cantidad,
+          quantity_remaining: item.cantidad,
+          unit_cost: item.costo,
+          purchase_date: nuevaFechaGrupo,
+          supplier: nuevoProveedorGrupo,
+          payment_method: nuevaFormaPagoGrupo,
+          cash_amount: cashAmt,
+          bank_amount: bankAmt,
+        });
+      }
     }
+
     setEditandoGrupo(null);
+    setItemsGrupoEdit([]);
     cargarLotes();
+    setGuardando(false);
   }
 
   async function eliminarGrupo(fecha: string, proveedor: string) {
@@ -331,18 +386,6 @@ export default function ComprasPage() {
       await supabase.from("purchase_lots").delete().eq("id", lote.id);
     }
     cargarLotes();
-  }
-
-  function agregarProductoAGrupo(fecha: string, proveedor: string) {
-    setEditando(null);
-    setFecha(fecha);
-    const prov = proveedores.find((p) => p.name === proveedor);
-    setProveedorId(prov?.id || "");
-    setProductoId("");
-    setCantidad("");
-    setCostoUnitario("");
-    setItemsTemp([]);
-    setMostrarForm(true);
   }
 
   function exportarExcel() {
@@ -485,9 +528,50 @@ export default function ComprasPage() {
                 <div className="space-y-2"><Label>Monto en transferencia</Label><Input type="number" value={nuevoMontoBaGrupo} onChange={(e) => setNuevoMontoBaGrupo(e.target.value)} /></div>
               </div>
             )}
+
+            <div className="border-t pt-4">
+              <Label className="font-medium">Productos en esta compra</Label>
+              <div className="mt-2 space-y-2">
+                {itemsGrupoEdit.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm border rounded p-2">
+                    <span className="flex-1">{item.nombre}</span>
+                    <Input type="number" className="w-20 h-8" value={item.cantidad} onChange={(e) => {
+                      const nuevos = [...itemsGrupoEdit];
+                      nuevos[idx].cantidad = Number(e.target.value);
+                      setItemsGrupoEdit(nuevos);
+                    }} />
+                    <Input type="number" step="0.01" className="w-24 h-8" value={item.costo} onChange={(e) => {
+                      const nuevos = [...itemsGrupoEdit];
+                      nuevos[idx].costo = Number(e.target.value);
+                      setItemsGrupoEdit(nuevos);
+                    }} />
+                    <span className="w-24 text-right">${(item.cantidad * item.costo).toLocaleString()}</span>
+                    <Button size="icon" variant="ghost" onClick={() => quitarProductoDeGrupoEdit(idx)}><X className="h-4 w-4 text-red-500" /></Button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between font-bold pt-2 border-t mt-2">
+                <span>Total:</span>
+                <span>${totalGrupoEdit.toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <Label className="text-sm font-medium">Agregar producto</Label>
+              <div className="grid grid-cols-4 gap-2 mt-2">
+                <select className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm" value={productoNuevoGrupo} onChange={(e) => setProductoNuevoGrupo(e.target.value)}>
+                  <option value="">Producto</option>
+                  {productos.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <Input type="number" placeholder="Cantidad" value={cantidadNuevaGrupo} onChange={(e) => setCantidadNuevaGrupo(e.target.value)} />
+                <Input type="number" step="0.01" placeholder="Costo" value={costoNuevoGrupo} onChange={(e) => setCostoNuevoGrupo(e.target.value)} />
+                <Button variant="outline" onClick={agregarProductoAGrupoEdit}>+ Agregar</Button>
+              </div>
+            </div>
+
             <div className="flex gap-2">
-              <Button onClick={guardarEdicionGrupo}>Guardar cambios</Button>
-              <Button variant="outline" onClick={() => setEditandoGrupo(null)}>Cancelar</Button>
+              <Button onClick={guardarEdicionGrupo} disabled={guardando}>{guardando ? "Guardando..." : "Guardar cambios"}</Button>
+              <Button variant="outline" onClick={() => { setEditandoGrupo(null); setItemsGrupoEdit([]); }}>Cancelar</Button>
             </div>
           </CardContent>
         </Card>
@@ -670,7 +754,6 @@ export default function ComprasPage() {
                         <span className="text-sm text-muted-foreground">{data.cantidad} cartones</span>
                         <span className="font-bold">${data.total.toLocaleString()}</span>
                         <Button size="sm" variant="ghost" onClick={(e) => { e.preventDefault(); iniciarEdicionGrupo(fecha, proveedor); }} title="Editar compra"><Pencil className="h-4 w-4" /></Button>
-                        <Button size="sm" variant="ghost" onClick={(e) => { e.preventDefault(); agregarProductoAGrupo(fecha, proveedor); }} title="Agregar producto"><Plus className="h-4 w-4" /></Button>
                         <Button size="sm" variant="ghost" onClick={(e) => { e.preventDefault(); eliminarGrupo(fecha, proveedor); }} title="Eliminar compra"><Trash2 className="h-4 w-4 text-red-500" /></Button>
                       </div>
                     </summary>
