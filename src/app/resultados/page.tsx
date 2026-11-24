@@ -44,21 +44,17 @@ export default function ResultadosPage() {
     const rango = obtenerRango();
     const rangoAnt = obtenerRango(true);
 
-    // Cargar ventas y sale_items para calcular costos correctamente
     const { data: ventas } = await supabase.from("sales").select("id").gte("sale_date", rango.inicio).lte("sale_date", rango.fin);
     const { data: ventasAnt } = await supabase.from("sales").select("id").gte("sale_date", rangoAnt.inicio).lte("sale_date", rangoAnt.fin);
     const { data: items } = await supabase.from("sale_items").select("sale_id, quantity, unit_price, unit_cost, lot_id");
     
-    // Cargar lotes de bonificación
     const { data: lotesBonif } = await supabase.from("purchase_lots").select("id").eq("supplier", "Grupo Modelo Tuxtepec-Bonificación");
     const idsLotesBonif = new Set(lotesBonif?.map((l) => l.id) || []);
 
-    // Cargar categorías y gastos
     const { data: categorias } = await supabase.from("expense_categories").select("id, name");
     const { data: gastosData } = await supabase.from("expenses").select("amount, category_id").gte("expense_date", rango.inicio).lte("expense_date", rango.fin);
     const { data: gastosAntData } = await supabase.from("expenses").select("amount").gte("expense_date", rangoAnt.inicio).lte("expense_date", rangoAnt.fin);
 
-    // Calcular mes actual desde sale_items
     let ing = 0, costo = 0, cart = 0, bonif = 0;
     if (ventas && items) {
       const ids = new Set(ventas.map((v) => v.id));
@@ -68,7 +64,6 @@ export default function ResultadosPage() {
       costo = itemsFiltrados.reduce((s, i) => s + Number(i.quantity) * Number(i.unit_cost || 0), 0);
       cart = itemsFiltrados.reduce((s, i) => s + Number(i.quantity), 0);
       
-      // Bonificación vendida
       for (const item of itemsFiltrados) {
         if (item.lot_id && idsLotesBonif.has(item.lot_id)) {
           bonif += Number(item.quantity) * Number(item.unit_price);
@@ -76,7 +71,6 @@ export default function ResultadosPage() {
       }
     }
 
-    // Calcular mes anterior desde sale_items
     let ingAnt = 0, costoA = 0, bonifAnt = 0;
     if (ventasAnt && items) {
       const idsAnt = new Set(ventasAnt.map((v) => v.id));
@@ -92,7 +86,6 @@ export default function ResultadosPage() {
       }
     }
 
-    // Agrupar gastos por categoría
     const gastosMap: Record<string, number> = {};
     if (gastosData && categorias) {
       gastosData.forEach((g) => {
@@ -118,9 +111,10 @@ export default function ResultadosPage() {
   function imprimir() { window.print(); }
 
   const utilidadBruta = ingresos - costoVentas;
-  const utilidadNeta = utilidadBruta - gastos + bonificacion;
+  // CORRECCIÓN: Utilidad Neta = Utilidad Bruta - Gastos (sin sumar bonificación)
+  const utilidadNeta = utilidadBruta - gastos;
   const utilidadBrutaAnt = ingresosAnt - costoAnt;
-  const utilidadNetaAnt = utilidadBrutaAnt - gastosAnt + bonificacionAnt;
+  const utilidadNetaAnt = utilidadBrutaAnt - gastosAnt;
 
   function variacion(actual: number, anterior: number) {
     if (anterior === 0) return actual > 0 ? 100 : 0;
@@ -243,15 +237,6 @@ export default function ResultadosPage() {
                 <td className="py-2 px-2 text-right">{pct(gastosAnt, ingresosAnt).toFixed(1)}%</td>
                 <td className="py-2 px-2 text-right">${Math.round(gastos - gastosAnt).toLocaleString()}</td>
                 <td className="py-2 px-2 text-right">{variacion(gastos, gastosAnt).toFixed(1)}%</td>
-              </tr>
-              <tr className="border-b">
-                <td className="py-2 px-2">(+) Utilidad bonificación</td>
-                <td className="py-2 px-2 text-right text-green-600">+${Math.round(bonificacion).toLocaleString()}</td>
-                <td className="py-2 px-2 text-right">{pct(bonificacion, ingresos).toFixed(1)}%</td>
-                <td className="py-2 px-2 text-right text-green-600">+${Math.round(bonificacionAnt).toLocaleString()}</td>
-                <td className="py-2 px-2 text-right">{pct(bonificacionAnt, ingresosAnt).toFixed(1)}%</td>
-                <td className="py-2 px-2 text-right">${Math.round(bonificacion - bonificacionAnt).toLocaleString()}</td>
-                <td className="py-2 px-2 text-right">{variacion(bonificacion, bonificacionAnt).toFixed(1)}%</td>
               </tr>
               <tr className="bg-green-600 text-white font-bold">
                 <td className="py-3 px-2">Utilidad Neta</td>

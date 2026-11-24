@@ -120,13 +120,12 @@ export default function InventarioPage() {
         const ventasProd = ventas?.filter((v) => v.product_id === prod.id) || [];
         const totalVentas = ventasProd.reduce((sum, v) => sum + Number(v.quantity), 0);
 
-        // Fórmula original para comparar
         const stockFormula = stockInicial + totalCompras - totalVentas - mermaProd;
 
         productosConStock.push({
           id: prod.id,
           name: prod.name,
-          stock_actual: Math.max(0, stockFormula),
+          stock_actual: stockFormula,
           valor_actual: valorReal,
           inv_inicial: stockInicial,
           costo_inicial: costoIni,
@@ -272,7 +271,6 @@ export default function InventarioPage() {
   const valorInicialTotal = productosFiltrados.reduce((sum, p) => sum + p.inv_inicial * p.costo_inicial, 0);
   const mermaTotal = productosFiltrados.reduce((sum, p) => sum + p.merma, 0);
 
-  // Diagnóstico: lotes de Media Victoria
   const productoMedia = productos.find((p) => p.name.toLowerCase().includes("media victoria"));
   const lotesMedia = productoMedia
     ? todosLotes.filter((l) => l.product_id === productoMedia.id)
@@ -351,7 +349,7 @@ export default function InventarioPage() {
                     <td className="py-2">{l.purchase_date}</td>
                     <td className="py-2">{l.supplier || "-"}</td>
                     <td className="py-2 text-right">{l.quantity_initial}</td>
-                    <td className={`py-2 text-right font-medium ${l.quantity_remaining > 0 ? "text-green-600" : "text-red-500"}`}>{l.quantity_remaining}</td>
+                    <td className={`py-2 text-right font-medium ${l.quantity_remaining >= 0 ? "text-green-600" : "text-red-500"}`}>{l.quantity_remaining}</td>
                     <td className="py-2 text-right">{l.quantity_merma || 0}</td>
                     <td className="py-2 text-right">${Number(l.unit_cost).toFixed(2)}</td>
                   </tr>
@@ -516,7 +514,7 @@ export default function InventarioPage() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stockTotal.toLocaleString()}</div>
+            <div className={`text-2xl font-bold ${stockTotal < 0 ? "text-red-600" : ""}`}>{stockTotal.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">cartones</p>
           </CardContent>
         </Card>
@@ -526,7 +524,7 @@ export default function InventarioPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${Math.round(valorTotal).toLocaleString()}</div>
+            <div className={`text-2xl font-bold ${valorTotal < 0 ? "text-red-600" : ""}`}>${Math.round(valorTotal).toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">valor en inventario</p>
           </CardContent>
         </Card>
@@ -587,8 +585,8 @@ export default function InventarioPage() {
                   <td className="py-3 text-right text-green-600">{prod.compras.toLocaleString()}</td>
                   <td className="py-3 text-right text-orange-600">{prod.ventas.toLocaleString()}</td>
                   <td className="py-3 text-right text-red-600">{prod.merma.toLocaleString()}</td>
-                  <td className="py-3 text-right font-medium">{prod.stock_actual.toLocaleString()}</td>
-                  <td className="py-3 text-right">${Math.round(prod.valor_actual).toLocaleString()}</td>
+                  <td className={`py-3 text-right font-medium ${prod.stock_actual < 0 ? "text-red-600" : ""}`}>{prod.stock_actual.toLocaleString()}</td>
+                  <td className={`py-3 text-right ${prod.valor_actual < 0 ? "text-red-600" : ""}`}>${Math.round(prod.valor_actual).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

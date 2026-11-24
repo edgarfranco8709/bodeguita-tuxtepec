@@ -14,6 +14,7 @@ type Lote = {
   product_id: string;
   quantity_initial: number;
   quantity_remaining: number;
+  quantity_merma: number | null;
   unit_cost: number;
   purchase_date: string;
   supplier: string | null;
@@ -464,7 +465,7 @@ export default function ReportesPage() {
                 <CardTitle>Detalle del lote</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-4 md:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-5">
                   <div>
                     <p className="text-sm text-muted-foreground">Producto</p>
                     <p className="font-medium">{loteActual.products?.name}</p>
@@ -478,8 +479,12 @@ export default function ReportesPage() {
                     <p className="font-medium">{loteActual.quantity_initial}</p>
                   </div>
                   <div>
+                    <p className="text-sm text-muted-foreground">Merma</p>
+                    <p className="font-medium text-red-600">{loteActual.quantity_merma || 0}</p>
+                  </div>
+                  <div>
                     <p className="text-sm text-muted-foreground">Restante</p>
-                    <p className="font-medium">{loteActual.quantity_remaining}</p>
+                    <p className={`font-medium ${loteActual.quantity_remaining < 0 ? "text-red-600" : ""}`}>{loteActual.quantity_remaining}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Vendido</p>
@@ -514,6 +519,7 @@ export default function ReportesPage() {
                       <th className="text-left py-3">Producto</th>
                       <th className="text-left py-3">Fecha compra</th>
                       <th className="text-right py-3">Inicial</th>
+                      <th className="text-right py-3">Merma</th>
                       <th className="text-right py-3">Vendido</th>
                       <th className="text-right py-3">Restante</th>
                       <th className="text-right py-3">Total venta</th>
@@ -530,8 +536,9 @@ export default function ReportesPage() {
                         <td className="py-3">{lote.products?.name || "-"}</td>
                         <td className="py-3">{lote.purchase_date}</td>
                         <td className="py-3 text-right">{lote.quantity_initial}</td>
+                        <td className="py-3 text-right text-red-600">{lote.quantity_merma || 0}</td>
                         <td className="py-3 text-right">{lote.cantidadVendida}</td>
-                        <td className="py-3 text-right">{lote.quantity_remaining}</td>
+                        <td className={`py-3 text-right ${lote.quantity_remaining < 0 ? "text-red-600 font-medium" : ""}`}>{lote.quantity_remaining}</td>
                         <td className="py-3 text-right">${Math.round(lote.totalVenta).toLocaleString()}</td>
                         <td className={`py-3 text-right ${lote.utilidad >= 0 ? "text-green-600" : "text-orange-600"}`}>
                           ${Math.round(lote.utilidad).toLocaleString()}

@@ -177,10 +177,40 @@ export default function ComprasPage() {
         cashAmt = Number(montoEfectivo) * proporcion;
         bankAmt = Number(montoBanco) * proporcion;
       }
+
+      // Verificar si hay lotes con remaining negativo para este producto
+      const { data: lotesNegativos } = await supabase
+        .from("purchase_lots")
+        .select("id, quantity_remaining")
+        .eq("product_id", item.productoId)
+        .lt("quantity_remaining", 0)
+        .order("purchase_date", { ascending: true });
+
+      let cantidadParaNuevoLote = item.cantidad;
+      let cantidadUsadaParaCubrir = 0;
+
+      if (lotesNegativos && lotesNegativos.length > 0) {
+        for (const loteNeg of lotesNegativos) {
+          if (cantidadParaNuevoLote <= 0) break;
+          
+          const faltante = Math.abs(Number(loteNeg.quantity_remaining));
+          const cubrir = Math.min(cantidadParaNuevoLote, faltante);
+          
+          await supabase
+            .from("purchase_lots")
+            .update({ quantity_remaining: Number(loteNeg.quantity_remaining) + cubrir })
+            .eq("id", loteNeg.id);
+          
+          cantidadParaNuevoLote -= cubrir;
+          cantidadUsadaParaCubrir += cubrir;
+        }
+      }
+
+      // Crear el nuevo lote con la cantidad restante
       await supabase.from("purchase_lots").insert({
         product_id: item.productoId,
         quantity_initial: item.cantidad,
-        quantity_remaining: item.cantidad,
+        quantity_remaining: cantidadParaNuevoLote,
         unit_cost: item.costo,
         purchase_date: fecha,
         supplier: proveedorSeleccionado?.name || null,
@@ -188,6 +218,10 @@ export default function ComprasPage() {
         cash_amount: cashAmt,
         bank_amount: bankAmt,
       });
+
+      if (cantidadUsadaParaCubrir > 0) {
+        console.log(`Se cubrieron ${cantidadUsadaParaCubrir} unidades de faltante negativo para ${item.nombre}`);
+      }
     }
     
     alert("Compra registrada");

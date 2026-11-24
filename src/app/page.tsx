@@ -87,7 +87,6 @@ export default function DashboardPage() {
         supabase.from("sale_items").select("product_id, quantity"),
       ]);
 
-      // Calcular stock con fórmula
       let stockTotalCalc = 0;
       let valorTotalCalc = 0;
       const bajos: { name: string; stock: number }[] = [];
@@ -141,7 +140,6 @@ export default function DashboardPage() {
         setBonificacionValor(0);
       }
 
-      // Ventas - calcular desde sale_items
       if (ventas && items) {
         const ventasIds = new Set(ventas.map((v) => v.id));
         const itemsFiltrados = items.filter((i) => ventasIds.has(i.sale_id));
@@ -155,7 +153,6 @@ export default function DashboardPage() {
         setNumeroClientes(new Set(ventas.map((v) => v.customer_id)).size);
         setCartonesVendidos(itemsFiltrados.reduce((sum, i) => sum + Number(i.quantity), 0));
 
-        // Utilidad de bonificación (solo de lotes de bonificación)
         let utilidadBonif = 0;
         for (const item of itemsFiltrados) {
           if (item.lot_id && idsLotesBonif.has(item.lot_id)) {
@@ -164,7 +161,6 @@ export default function DashboardPage() {
         }
         setUtilidadBonificacion(utilidadBonif);
 
-        // Ventas por día
         const porDia: Record<string, number> = {};
         ventas.forEach((v) => {
           const fecha = v.sale_date.split("T")[0];
@@ -174,7 +170,6 @@ export default function DashboardPage() {
         });
         setVentasPorDia(Object.entries(porDia).map(([fecha, total]) => ({ fecha, total })).sort((a, b) => a.fecha.localeCompare(b.fecha)));
 
-        // Top clientes
         const clientesMap: Record<string, { nombre: string; cartones: number; monto: number }> = {};
         ventas.forEach((v) => {
           const nombre = (v.customers as any)?.name || "Sin nombre";
@@ -208,7 +203,8 @@ export default function DashboardPage() {
 
   useEffect(() => { cargar(); }, [filtro, fechaInicio, fechaFin]);
 
-  const utilidadNeta = totalDiferencia - totalGastos + utilidadBonificacion;
+  // CORRECCIÓN: Utilidad Neta = Ganancia - Gastos (sin sumar bonificación)
+  const utilidadNeta = totalDiferencia - totalGastos;
   const diferenciaPorCarton = cartonesVendidos > 0 ? totalDiferencia / cartonesVendidos : 0;
   const esPositivo = totalDiferencia >= 0;
   const porcentajeMeta = Math.min((cartonesGrupoModelo / metaGrupoModelo) * 100, 100);
